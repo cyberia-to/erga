@@ -1,0 +1,19 @@
+[package]
+name = "mine-bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aruminium    = { path = "../../../honeycrisp/aruminium" }
+unimem       = { path = "../../../honeycrisp/unimem" }
+blake-bench  = { path = "../blake-bench" }
+rtable-bench = { path = "../rtable-bench" }
+blake2       = "0.10"
+
+[[bin]]
+name = "mine-bench"
+path = "src/main.rs"
+
+[lib]
+name = "mine_bench"
+path = "src/lib.rs"

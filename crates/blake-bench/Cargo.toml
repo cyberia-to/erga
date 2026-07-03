@@ -1,0 +1,17 @@
+[package]
+name = "blake-bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aruminium = { path = "../../../honeycrisp/aruminium" }
+unimem    = { path = "../../../honeycrisp/unimem" }
+blake2    = "0.10"
+
+[[bin]]
+name = "blake-bench"
+path = "src/main.rs"
+
+[lib]
+name = "blake_bench"
+path = "src/lib.rs"
