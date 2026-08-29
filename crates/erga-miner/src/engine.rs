@@ -89,30 +89,13 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
 
     p.set_status("waiting for work…");
     while !p.stop.load(Ordering::Relaxed) {
+        // Drain all pending events, coalescing to the LATEST job. At startup
+        // the pool sends a burst of heights; rebuilding the table for each is
+        // wasteful (13s apiece) — we rebuild once, for the newest height.
+        let mut latest_job: Option<Job> = None;
         while let Ok(ev) = s.events.try_recv() {
             match ev {
-                PoolEvent::Job(j) => {
-                    if j.height != cur_height {
-                        cur_height = j.height;
-                        p.height.store(j.height as u64, Ordering::Relaxed);
-                        let n = autolykos::calc_big_n(j.version, j.height);
-                        p.set_status("building table…");
-                        p.rate_khs.store(0, Ordering::Relaxed);
-                        match ScanMiner::new_gpu_built(Gpu::open().expect("gpu"), n, j.height, &m) {
-                            Ok(mn) => miner = Some(mn),
-                            Err(e) => {
-                                p.set_status(format!("GPU table build failed: {e}"));
-                                p.running.store(false, Ordering::Relaxed);
-                                return;
-                            }
-                        }
-                        cursor = 0;
-                        window_start = std::time::Instant::now();
-                        window_hashed = 0;
-                        p.set_status("mining");
-                    }
-                    job = Some(j);
-                }
+                PoolEvent::Job(j) => latest_job = Some(j),
                 PoolEvent::Difficulty(_) => {}
                 PoolEvent::SubmitResult { accepted, .. } => {
                     if accepted {
@@ -127,6 +110,28 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
                     return;
                 }
             }
+        }
+        if let Some(j) = latest_job {
+            if j.height != cur_height {
+                cur_height = j.height;
+                p.height.store(j.height as u64, Ordering::Relaxed);
+                let n = autolykos::calc_big_n(j.version, j.height);
+                p.set_status("building table…");
+                p.rate_khs.store(0, Ordering::Relaxed);
+                match ScanMiner::new_gpu_built(Gpu::open().expect("gpu"), n, j.height, &m) {
+                    Ok(mn) => miner = Some(mn),
+                    Err(e) => {
+                        p.set_status(format!("GPU table build failed: {e}"));
+                        p.running.store(false, Ordering::Relaxed);
+                        return;
+                    }
+                }
+                cursor = 0;
+                window_start = std::time::Instant::now();
+                window_hashed = 0;
+                p.set_status("mining");
+            }
+            job = Some(j);
         }
 
         let (Some(mn), Some(j)) = (&miner, &job) else {

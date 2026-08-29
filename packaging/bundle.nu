@@ -8,7 +8,7 @@
 
 def main [] {
     let root = ($env.FILE_PWD | path dirname)
-    let ver = "0.1.0"
+    let ver = "0.3.0"
     let dist = ($env.FILE_PWD | path join "dist")
     let app = ($dist | path join "erga.app")
 
