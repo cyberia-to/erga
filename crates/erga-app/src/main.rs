@@ -27,10 +27,18 @@ const MUTE: Color32 = Color32::from_rgb(90, 110, 100);
 
 fn main() -> eframe::Result<()> {
     // headless mining lives in the CLI: `erga-miner mine <host> <port> <addr>`.
+    // ERGA_WIN=1600x1000 overrides the initial window size (dev/testing).
+    let size = std::env::var("ERGA_WIN")
+        .ok()
+        .and_then(|s| {
+            let (w, h) = s.split_once('x')?;
+            Some([w.parse().ok()?, h.parse().ok()?])
+        })
+        .unwrap_or([460.0, 976.0]);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([460.0, 900.0])
-            .with_min_inner_size([430.0, 858.0])
+            .with_inner_size(size)
+            .with_min_inner_size([430.0, 934.0])
             .with_title("erga"),
         ..Default::default()
     };
@@ -232,11 +240,196 @@ impl eframe::App for App {
                 });
             });
 
+            // Wide window → the HUD: the crystal is the sun, the machine
+            // orbits on the left, the earnings on the right. Narrow window →
+            // the single centered column below.
+            let wide = avail_w >= 980.0;
+            if wide {
+                let p = self.miner.p.clone();
+                let mhs = p.mhs();
+                // refresh balance + ledger on the same 30s cadence
+                if let Some(addr) = self.address().map(|a| a.to_string()) {
+                    if self.last_balance.elapsed().as_secs() >= 30 {
+                        self.balance.fetch(addr.clone());
+                        if pools::has_ledger(self.pool_idx) {
+                            self.pool.fetch(addr);
+                        }
+                        self.last_balance = std::time::Instant::now();
+                    }
+                }
+
+                let side = 44.0;
+                let (lw, rw, gap) = (270.0, 330.0, 28.0);
+                let cw = (avail_w - side * 2.0 - lw - rw - gap * 2.0 - 48.0).max(240.0);
+                let cr = (cw * 0.34).min(avail_h * 0.21).clamp(110.0, 235.0);
+                let row_h = (cr * 2.3).max(400.0);
+                ui.add_space(((avail_h - row_h - 190.0) / 2.0).max(6.0));
+
+                ui.horizontal(|ui| {
+                    ui.add_space(side);
+                    // ── the machine — what your Mac is doing ──────────
+                    egui::Frame::none()
+                        .stroke(Stroke::new(1.0, MINT.gamma_multiply(0.22)))
+                        .rounding(12.0)
+                        .inner_margin(egui::Margin::symmetric(16.0, 14.0))
+                        .show(ui, |ui| {
+                            ui.vertical(|ui| {
+                            ui.set_width(lw - 32.0);
+                            ui.set_min_height(row_h - 28.0);
+                            caps(ui, "the machine", 10.0, MUTE);
+                            ui.add_space(10.0);
+                            let rate = if running { format!("{:.1}", mhs) } else { "—".to_string() };
+                            let mut job = egui::text::LayoutJob::default();
+                            job.append(
+                                &rate,
+                                0.0,
+                                egui::TextFormat {
+                                    font_id: play_bold(42.0),
+                                    color: MINT,
+                                    ..Default::default()
+                                },
+                            );
+                            ui.label(job);
+                            caps(ui, "mh/s", 10.0, MUTE);
+                            ui.add_space(3.0);
+                            ui.label(
+                                egui::RichText::new(p.status.lock().unwrap().clone())
+                                    .color(MUTE)
+                                    .size(11.0),
+                            );
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+                            card_row(ui, "device", &p.device.lock().unwrap());
+                            {
+                                let acc = p.accepted.load(std::sync::atomic::Ordering::Relaxed);
+                                let rej = p.rejected.load(std::sync::atomic::Ordering::Relaxed);
+                                let shares =
+                                    if rej > 0 { format!("{acc} ({rej} rej)") } else { format!("{acc}") };
+                                card_row(ui, "shares", &shares);
+                            }
+                            {
+                                let h = p.height.load(std::sync::atomic::Ordering::Relaxed);
+                                card_row(ui, "block", &(if h > 0 { h.to_string() } else { "—".into() }));
+                            }
+                            card_row(
+                                ui,
+                                "hashed",
+                                &human(p.hashed.load(std::sync::atomic::Ordering::Relaxed)),
+                            );
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+                            self.sys.refresh();
+                            card_row(ui, "cpu", &format!("{:.0}%", self.sys.cpu * 100.0));
+                            card_row(ui, "ram", &format!("{:.0}%", self.sys.mem * 100.0));
+                            card_row(ui, "net", &format!("{:.0} KB/s", self.sys.down_kbs));
+                            });
+                        });
+                    ui.add_space(gap);
+                    // ── the crystal sun ───────────────────────────────
+                    let (rect, resp) = ui.allocate_at_least(Vec2::new(cw, row_h), Sense::click());
+                    let center = rect.center();
+                    draw_crystal(ui, center, cr, running, self.spin, resp.hovered());
+                    ui.painter().text(
+                        center,
+                        Align2::CENTER_CENTER,
+                        if running { "MINING" } else { "START" },
+                        FontId::proportional((cr * 0.19).clamp(20.0, 36.0)),
+                        if running { BG } else { MINT },
+                    );
+                    if resp.clicked() {
+                        if running {
+                            self.miner.stop();
+                        } else if let Some(addr) = self.address().map(|a| a.to_string()) {
+                            let pl = &pools::POOLS[self.pool_idx];
+                            self.miner.start(addr, pl.host, pl.port);
+                        } else {
+                            self.miner.p.set_status("wallet unavailable");
+                        }
+                    }
+                    if resp.hovered() {
+                        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+                    }
+                    ui.add_space(gap);
+                    // ── the earnings — what the work returns ──────────
+                    egui::Frame::none()
+                        .stroke(Stroke::new(1.0, MINT.gamma_multiply(0.22)))
+                        .rounding(12.0)
+                        .inner_margin(egui::Margin::symmetric(16.0, 14.0))
+                        .show(ui, |ui| {
+                            ui.vertical(|ui| {
+                            ui.set_width(rw - 32.0);
+                            ui.set_min_height(row_h - 28.0);
+                            ui.horizontal(|ui| {
+                                caps(ui, "the payout", 10.0, MUTE);
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        let sees = self.pool.inner.lock().unwrap().hashrate_24h_mhs;
+                                        caps(
+                                            ui,
+                                            &format!("sees {sees:.0} mh/s · 24h"),
+                                            9.0,
+                                            MUTE.gamma_multiply(0.85),
+                                        );
+                                    },
+                                );
+                            });
+                            ui.add_space(10.0);
+                            if pools::has_ledger(self.pool_idx) {
+                                let pi = self.pool.inner.lock().unwrap();
+                                if pi.ok {
+                                    payout_game(ui, &pi, mhs, running);
+                                } else {
+                                    caps(ui, "reading the pool ledger…", 9.0, MUTE);
+                                }
+                            } else {
+                                caps(ui, "this pool has no in-app ledger yet", 9.0, MUTE);
+                                ui.add_space(2.0);
+                                caps(ui, "track earnings on its site", 9.0, MUTE);
+                            }
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+                            let b = self.balance.inner.lock().unwrap();
+                            let on_chain =
+                                b.erg.map(|e| format!("{e:.4} ERG")).unwrap_or("—".to_string());
+                            drop(b);
+                            card_row(ui, "on chain", &on_chain);
+                            });
+                        });
+                });
+
+                // ── the wallet strip — identity, out of the way ───────
+                ui.add_space(20.0);
+                if let Some(addr) = self.address().map(|a| a.to_string()) {
+                    ui.horizontal(|ui| {
+                        ui.add_space(((avail_w - 620.0) / 2.0).max(10.0));
+                        caps(ui, "wallet", 9.5, MUTE);
+                        ui.add_space(10.0);
+                        ui.label(
+                            egui::RichText::new(&addr)
+                                .monospace()
+                                .size(10.5)
+                                .color(CREAM.gamma_multiply(0.7)),
+                        );
+                        ui.add_space(10.0);
+                        if ui.button(egui::RichText::new("copy").size(10.0)).clicked() {
+                            ui.output_mut(|o| o.copied_text = addr.clone());
+                        }
+                        if ui.button(egui::RichText::new("back up").size(10.0)).clicked() {
+                            self.show_backup = true;
+                        }
+                    });
+                }
+            } else {
+
             // ── the stage: one centered axis, scaled to the window ────
             let cr = ((avail_h - 640.0) * 0.42)
-                .clamp(96.0, 200.0)
+                .clamp(96.0, 120.0)
                 .min(avail_w * 0.28);
-            let est = cr * 2.4 + 730.0;
+            let est = cr * 2.4 + 760.0;
             ui.add_space(((avail_h - est) / 2.0).max(4.0));
 
             // ── the crystal button ────────────────────────────────────
@@ -433,76 +626,7 @@ impl eframe::App for App {
                                     });
                                 });
                                 ui.add_space(9.0);
-
-                                let earned = pi.balance_erg + pi.pending_erg;
-                                let toward = (earned / pi.threshold_erg) as f32;
-
-                                // the payout bar — segmented in tens, a pulsing
-                                // tip marks where the earning happens
-                                let w = ui.available_width();
-                                let (rect, _) =
-                                    ui.allocate_exact_size(Vec2::new(w, 8.0), Sense::hover());
-                                ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(22, 32, 27));
-                                let f = toward.clamp(0.0, 1.0).max(0.008);
-                                let fw = w * f;
-                                ui.painter().rect_filled(
-                                    egui::Rect::from_min_size(rect.min, Vec2::new(fw, 8.0)),
-                                    4.0,
-                                    MINT.gamma_multiply(0.92),
-                                );
-                                for i in 1..10 {
-                                    let x = rect.min.x + w * i as f32 / 10.0;
-                                    ui.painter().line_segment(
-                                        [
-                                            Pos2::new(x, rect.min.y + 1.5),
-                                            Pos2::new(x, rect.max.y - 1.5),
-                                        ],
-                                        Stroke::new(1.0, BG),
-                                    );
-                                }
-                                let t = ui.input(|i| i.time);
-                                let pulse: f32 =
-                                    if running { 0.55 + 0.45 * (t * 2.2).sin() as f32 } else { 0.35 };
-                                let tip = Pos2::new(rect.min.x + fw, rect.center().y);
-                                ui.painter().circle_filled(tip, 7.0, MINT.gamma_multiply(0.12 * pulse));
-                                ui.painter().circle_filled(tip, 4.5, MINT.gamma_multiply(0.28 * pulse));
-                                ui.painter()
-                                    .circle_filled(tip, 2.4, MINT.gamma_multiply(0.65 + 0.35 * pulse));
-
-                                ui.add_space(7.0);
-                                // the score line: the percentage, and an honest ETA
-                                ui.horizontal(|ui| {
-                                    let mut job = egui::text::LayoutJob::default();
-                                    job.append(
-                                        &format!("{:.1}%", (toward * 100.0).min(100.0)),
-                                        0.0,
-                                        egui::TextFormat {
-                                            font_id: play_bold(20.0),
-                                            color: MINT,
-                                            ..Default::default()
-                                        },
-                                    );
-                                    ui.label(job);
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        caps(ui, &payout_eta(&pi, mhs, earned), 9.5, MUTE);
-                                    });
-                                });
-                                ui.add_space(7.0);
-                                // a month at this pace — the number a friend asks for
-                                if let Some(day) = erg_per_day(&pi, mhs) {
-                                    let month = day * 30.0;
-                                    let usd = if pi.price_usd > 0.0 {
-                                        format!("  ·  ${:.2}", month * pi.price_usd)
-                                    } else {
-                                        String::new()
-                                    };
-                                    card_row(ui, "a month at this pace", &format!("≈ {month:.2} ERG{usd}"));
-                                }
-                                card_row(ui, "maturing", &format!("{:.5} ERG", pi.pending_erg));
-                                card_row(ui, "credited", &format!("{:.5} ERG", pi.balance_erg));
-                                if pi.paid_erg > 0.0 {
-                                    card_row(ui, "paid out", &format!("{:.5} ERG", pi.paid_erg));
-                                }
+                                payout_game(ui, &pi, mhs, running);
                             }
                         }
                         None => {
@@ -516,6 +640,7 @@ impl eframe::App for App {
                 });
                 }); // column
             }); // centered row
+            } // end compact layout
 
             // ── backup panel (reveal the seed once, with a warning) ────
             if self.show_backup {
@@ -616,6 +741,64 @@ fn erg_per_day(pi: &pool::PoolInfo, local_mhs: f64) -> Option<f64> {
     let net_hs = pi.difficulty / pool::BLOCK_TIME_S;
     let blocks_per_day = 86_400.0 / pool::BLOCK_TIME_S;
     Some(rate_mhs * 1e6 / net_hs * blocks_per_day * pool::BLOCK_REWARD_ERG)
+}
+
+/// The payout game — segmented bar, pulsing tip, the score and the honest
+/// countdown, then the ledger rows. One source for both layouts.
+fn payout_game(ui: &mut egui::Ui, pi: &pool::PoolInfo, local_mhs: f64, running: bool) {
+    let earned = pi.balance_erg + pi.pending_erg;
+    let toward = (earned / pi.threshold_erg) as f32;
+
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 8.0), Sense::hover());
+    ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(22, 32, 27));
+    let f = toward.clamp(0.0, 1.0).max(0.008);
+    let fw = w * f;
+    ui.painter().rect_filled(
+        egui::Rect::from_min_size(rect.min, Vec2::new(fw, 8.0)),
+        4.0,
+        MINT.gamma_multiply(0.92),
+    );
+    for i in 1..10 {
+        let x = rect.min.x + w * i as f32 / 10.0;
+        ui.painter().line_segment(
+            [Pos2::new(x, rect.min.y + 1.5), Pos2::new(x, rect.max.y - 1.5)],
+            Stroke::new(1.0, BG),
+        );
+    }
+    let t = ui.input(|i| i.time);
+    let pulse: f32 = if running { 0.55 + 0.45 * (t * 2.2).sin() as f32 } else { 0.35 };
+    let tip = Pos2::new(rect.min.x + fw, rect.center().y);
+    ui.painter().circle_filled(tip, 7.0, MINT.gamma_multiply(0.12 * pulse));
+    ui.painter().circle_filled(tip, 4.5, MINT.gamma_multiply(0.28 * pulse));
+    ui.painter().circle_filled(tip, 2.4, MINT.gamma_multiply(0.65 + 0.35 * pulse));
+
+    ui.add_space(7.0);
+    ui.horizontal(|ui| {
+        let mut job = egui::text::LayoutJob::default();
+        job.append(
+            &format!("{:.1}%", (toward * 100.0).min(100.0)),
+            0.0,
+            egui::TextFormat { font_id: play_bold(20.0), color: MINT, ..Default::default() },
+        );
+        ui.label(job);
+    });
+    caps(ui, &payout_eta(pi, local_mhs, earned), 9.0, MUTE);
+    ui.add_space(8.0);
+    if let Some(day) = erg_per_day(pi, local_mhs) {
+        let month = day * 30.0;
+        let usd = if pi.price_usd > 0.0 {
+            format!("  ·  ${:.2}", month * pi.price_usd)
+        } else {
+            String::new()
+        };
+        card_row(ui, "a month at this pace", &format!("≈ {month:.2} ERG{usd}"));
+    }
+    card_row(ui, "maturing", &format!("{:.5} ERG", pi.pending_erg));
+    card_row(ui, "credited", &format!("{:.5} ERG", pi.balance_erg));
+    if pi.paid_erg > 0.0 {
+        card_row(ui, "paid out", &format!("{:.5} ERG", pi.paid_erg));
+    }
 }
 
 /// The honest countdown to the first payout.
