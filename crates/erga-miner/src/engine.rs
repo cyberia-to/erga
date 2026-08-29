@@ -57,20 +57,46 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
     p.rejected.store(0, Ordering::Relaxed);
     p.hashed.store(0, Ordering::Relaxed);
 
-    if let Ok(g) = Gpu::open() {
-        *p.device.lock().unwrap() = g.name();
-    }
-
-    p.set_status("connecting…");
-    let mut s = match Stratum::connect(&cfg.host, cfg.port, &cfg.address, "erga") {
-        Ok(s) => s,
+    match Gpu::open() {
+        Ok(g) => *p.device.lock().unwrap() = g.name(),
         Err(e) => {
-            p.set_status(format!("connect failed: {e}"));
+            p.set_status(format!("no Metal GPU: {e:?}"));
             p.running.store(false, Ordering::Relaxed);
             return;
         }
-    };
+    }
 
+    let m = autolykos::big_m();
+
+    // Reconnect loop: a dropped pool or a network blip retries instead of
+    // killing the miner. Only an explicit stop ends it.
+    while !p.stop.load(Ordering::Relaxed) {
+        p.set_status("connecting…");
+        match Stratum::connect(&cfg.host, cfg.port, &cfg.address, "erga") {
+            Ok(s) => mine_session(s, &cfg, &p, &m),
+            Err(e) => p.set_status(format!("connect failed ({e}) — retrying…")),
+        }
+        if p.stop.load(Ordering::Relaxed) {
+            break;
+        }
+        p.rate_khs.store(0, Ordering::Relaxed);
+        // brief backoff before reconnecting
+        for _ in 0..30 {
+            if p.stop.load(Ordering::Relaxed) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
+    p.set_status("idle");
+    p.rate_khs.store(0, Ordering::Relaxed);
+    p.running.store(false, Ordering::Relaxed);
+}
+
+/// One connected mining session. Returns when the pool disconnects or `stop`
+/// is set; the caller reconnects if appropriate.
+fn mine_session(mut s: Stratum, cfg: &PoolCfg, p: &Arc<Progress>, m: &[u8]) {
     let en1 = s.extranonce1.clone();
     let en1_bits = en1.len() as u32 * 8;
     let search_bits = 64 - en1_bits;
@@ -78,7 +104,6 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
     let en1_prefix = if en1_bits == 0 { 0 } else { en1_val << search_bits };
     let tail_mask: u64 = if search_bits >= 64 { u64::MAX } else { (1u64 << search_bits) - 1 };
 
-    let m = autolykos::big_m();
     let mut miner: Option<ScanMiner> = None;
     let mut cur_height = 0u32;
     let mut job: Option<Job> = None;
@@ -105,8 +130,7 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
                     }
                 }
                 PoolEvent::Closed => {
-                    p.set_status("pool disconnected");
-                    p.running.store(false, Ordering::Relaxed);
+                    p.set_status("pool disconnected — reconnecting…");
                     return;
                 }
             }
@@ -118,12 +142,21 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
                 let n = autolykos::calc_big_n(j.version, j.height);
                 p.set_status("building table…");
                 p.rate_khs.store(0, Ordering::Relaxed);
-                match ScanMiner::new_gpu_built(Gpu::open().expect("gpu"), n, j.height, &m) {
+                let gpu = match Gpu::open() {
+                    Ok(g) => g,
+                    Err(e) => {
+                        p.set_status(format!("GPU open failed: {e:?}"));
+                        return;
+                    }
+                };
+                match ScanMiner::new_gpu_built(gpu, n, j.height, m) {
                     Ok(mn) => miner = Some(mn),
                     Err(e) => {
-                        p.set_status(format!("GPU table build failed: {e}"));
-                        p.running.store(false, Ordering::Relaxed);
-                        return;
+                        // transient build error: drop this table, wait for next job
+                        p.set_status(format!("table build retry: {e}"));
+                        miner = None;
+                        cur_height = 0;
+                        continue;
                     }
                 }
                 cursor = 0;
@@ -166,10 +199,7 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
             window_hashed = 0;
         }
     }
-
-    p.set_status("idle");
-    p.rate_khs.store(0, Ordering::Relaxed);
-    p.running.store(false, Ordering::Relaxed);
+    // returns to run(), which reconnects unless stop was set
 }
 
 fn left_pad_32(b: &[u8]) -> [u8; 32] {

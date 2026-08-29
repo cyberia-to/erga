@@ -18,10 +18,10 @@ use egui::{Align2, Color32, FontId, Pos2, Sense, Stroke, Vec2};
 use balance::BalanceState;
 use miner::Miner;
 
-const BG: Color32 = Color32::from_rgb(6, 16, 10);
+const BG: Color32 = Color32::from_rgb(3, 5, 4); // near-black with a faint green cast
 const MINT: Color32 = Color32::from_rgb(125, 255, 196);
-const CREAM: Color32 = Color32::from_rgb(255, 248, 240);
-const MUTE: Color32 = Color32::from_rgb(120, 140, 128);
+const CREAM: Color32 = Color32::from_rgb(235, 245, 240);
+const MUTE: Color32 = Color32::from_rgb(90, 110, 100);
 
 fn main() -> eframe::Result<()> {
     // headless mining lives in the CLI: `erga-miner mine <host> <port> <addr>`.
@@ -80,7 +80,7 @@ impl App {
 
 impl eframe::App for App {
     fn clear_color(&self, _v: &egui::Visuals) -> [f32; 4] {
-        [6.0 / 255.0, 16.0 / 255.0, 10.0 / 255.0, 1.0]
+        [3.0 / 255.0, 5.0 / 255.0, 4.0 / 255.0, 1.0]
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -345,21 +345,28 @@ fn draw_crystal(ui: &egui::Ui, c: Pos2, r: f32, on: bool, spin: f32, hover: bool
     };
     let outer = hept(r * if hover && !on { 1.05 } else { 1.0 }, 0.0);
     if on {
-        painter.add(egui::Shape::convex_polygon(
-            outer.clone(),
-            MINT,
-            Stroke::new(1.5, MINT),
-        ));
-        // counter-rotating inner facet
+        // soft outer glow — a few expanding rings with falling alpha
+        for i in 1..=4 {
+            let k = i as f32;
+            painter.add(egui::Shape::closed_line(
+                hept(r * (1.0 + k * 0.06), 0.0),
+                Stroke::new(2.0, MINT.gamma_multiply(0.10 / k)),
+            ));
+        }
+        painter.add(egui::Shape::convex_polygon(outer.clone(), MINT, Stroke::new(1.5, MINT)));
         let inner = hept(r * 0.62, -spin);
         painter.add(egui::Shape::closed_line(inner, Stroke::new(1.0, BG.gamma_multiply(0.6))));
     } else {
-        painter.add(egui::Shape::closed_line(outer, Stroke::new(1.5, MINT.gamma_multiply(0.8))));
+        for i in 1..=3 {
+            let k = i as f32;
+            painter.add(egui::Shape::closed_line(
+                hept(r * (1.0 + k * 0.05), 0.0),
+                Stroke::new(1.5, MINT.gamma_multiply(0.06 / k)),
+            ));
+        }
+        painter.add(egui::Shape::closed_line(outer, Stroke::new(1.5, MINT.gamma_multiply(0.85))));
         let inner = hept(r * 0.62, spin);
-        painter.add(egui::Shape::closed_line(
-            inner,
-            Stroke::new(1.0, MINT.gamma_multiply(0.35)),
-        ));
+        painter.add(egui::Shape::closed_line(inner, Stroke::new(1.0, MINT.gamma_multiply(0.35))));
     }
 }
 
