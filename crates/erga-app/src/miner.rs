@@ -17,9 +17,6 @@ use std::thread::JoinHandle;
 
 use erga_miner::engine::Progress;
 
-const POOL_HOST: &str = "ergo.herominers.com";
-const POOL_PORT: u16 = 1180;
-
 pub struct Miner {
     pub p: Arc<Progress>,
     child: Option<Child>,
@@ -51,8 +48,8 @@ impl Miner {
         std::path::PathBuf::from("erga-miner")
     }
 
-    /// Start mining to the pool under `address`.
-    pub fn start(&mut self, address: String) {
+    /// Start mining to the chosen pool under `address`.
+    pub fn start(&mut self, address: String, host: &str, port: u16) {
         if self.is_running() {
             return;
         }
@@ -68,8 +65,8 @@ impl Miner {
         let bin = Self::miner_bin();
         let mut cmd = Command::new(&bin);
         cmd.arg("mine")
-            .arg(POOL_HOST)
-            .arg(POOL_PORT.to_string())
+            .arg(host)
+            .arg(port.to_string())
             .arg(&address)
             .arg("--machine")
             .stdout(Stdio::piped())

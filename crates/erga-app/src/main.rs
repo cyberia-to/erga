@@ -11,6 +11,7 @@
 mod balance;
 mod miner;
 mod pool;
+mod pools;
 mod stats;
 
 use eframe::egui;
@@ -131,6 +132,7 @@ struct App {
     miner: Miner,
     balance: BalanceState,
     pool: pool::PoolState,
+    pool_idx: usize,
     wallet: Result<erga_wallet::Wallet, String>,
     show_backup: bool,
     spin: f32,
@@ -151,6 +153,7 @@ impl App {
             miner: Miner::new(),
             balance,
             pool,
+            pool_idx: pools::load_choice(),
             wallet,
             show_backup: false,
             spin: 0.0,
@@ -178,11 +181,13 @@ impl eframe::App for App {
         ctx.request_repaint_after(std::time::Duration::from_millis(if running { 250 } else { 1000 }));
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add_space(18.0);
+            let avail_h = ui.available_height();
+            let avail_w = ui.available_width();
+            ui.add_space(16.0);
 
-            // ── header ────────────────────────────────────────────────
+            // ── header — wordmark left, controls right ────────────────
             ui.horizontal(|ui| {
-                ui.add_space(20.0);
+                ui.add_space(22.0);
                 let mut job = egui::text::LayoutJob::default();
                 job.append(
                     "ERGA",
@@ -198,33 +203,63 @@ impl eframe::App for App {
                 ui.add_space(4.0);
                 caps(ui, "ergo miner", 10.5, MUTE);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(20.0);
+                    ui.add_space(22.0);
                     badge(ui, "experimental");
+                    ui.add_space(8.0);
+                    // the pool chooser — same pool by default, closer doors
+                    let prev = self.pool_idx;
+                    egui::ComboBox::from_id_source("pool")
+                        .selected_text(
+                            egui::RichText::new(pools::POOLS[self.pool_idx].label).size(10.5),
+                        )
+                        .show_ui(ui, |ui| {
+                            for (i, p) in pools::POOLS.iter().enumerate() {
+                                ui.selectable_value(&mut self.pool_idx, i, p.label);
+                            }
+                        });
+                    if self.pool_idx != prev {
+                        pools::save_choice(self.pool_idx);
+                        if running {
+                            // hop live: stop, land on the new door mid-flight
+                            self.miner.stop();
+                            if let Ok(w) = &self.wallet {
+                                let addr = w.address.clone();
+                                let p = &pools::POOLS[self.pool_idx];
+                                self.miner.start(addr, p.host, p.port);
+                            }
+                        }
+                    }
                 });
             });
 
-            ui.add_space(10.0);
+            // ── the stage: one centered axis, scaled to the window ────
+            let cr = ((avail_h - 640.0) * 0.42)
+                .clamp(96.0, 200.0)
+                .min(avail_w * 0.28);
+            let est = cr * 2.4 + 730.0;
+            ui.add_space(((avail_h - est) / 2.0).max(4.0));
 
             // ── the crystal button ────────────────────────────────────
             let (rect, resp) = ui.allocate_at_least(
-                Vec2::new(ui.available_width(), 230.0),
+                Vec2::new(ui.available_width(), cr * 2.35),
                 Sense::click(),
             );
             let center = rect.center();
-            draw_crystal(ui, center, 92.0, running, self.spin, resp.hovered());
+            draw_crystal(ui, center, cr, running, self.spin, resp.hovered());
             let label = if running { "MINING" } else { "START" };
             ui.painter().text(
                 center,
                 Align2::CENTER_CENTER,
                 label,
-                FontId::proportional(19.0),
+                FontId::proportional((cr * 0.2).clamp(19.0, 34.0)),
                 if running { BG } else { MINT },
             );
             if resp.clicked() {
                 if running {
                     self.miner.stop();
                 } else if let Some(addr) = self.address().map(|a| a.to_string()) {
-                    self.miner.start(addr);
+                    let p = &pools::POOLS[self.pool_idx];
+                    self.miner.start(addr, p.host, p.port);
                 } else {
                     self.miner.p.set_status("wallet unavailable");
                 }
@@ -234,16 +269,34 @@ impl eframe::App for App {
             }
 
             // ── live hashrate ─────────────────────────────────────────
-            let p = &self.miner.p;
+            let p = self.miner.p.clone();
             ui.add_space(6.0);
             ui.vertical_centered(|ui| {
                 let rate = if running { format!("{:.1}", p.mhs()) } else { "—".to_string() };
-                ui.label(egui::RichText::new(rate).color(MINT).size(46.0).strong());
+                let mut job = egui::text::LayoutJob::default();
+                job.append(
+                    &rate,
+                    0.0,
+                    egui::TextFormat {
+                        font_id: play_bold((cr * 0.42).clamp(44.0, 60.0)),
+                        color: MINT,
+                        ..Default::default()
+                    },
+                );
+                ui.label(job);
                 ui.label(egui::RichText::new("MH/s").color(MUTE).size(13.0));
                 let status = p.status.lock().unwrap().clone();
                 ui.add_space(2.0);
                 ui.label(egui::RichText::new(status).color(MUTE).size(12.0));
             });
+
+            // ── the centered column below the crystal ─────────────────
+            let col_w = avail_w.min(640.0);
+            let side = ((avail_w - col_w) / 2.0).max(0.0);
+            ui.horizontal(|ui| {
+                ui.add_space(side);
+                ui.vertical(|ui| {
+                    ui.set_width(col_w);
 
             ui.add_space(12.0);
             {
@@ -284,7 +337,9 @@ impl eframe::App for App {
             if let Some(addr) = &addr_opt {
                 if self.last_balance.elapsed().as_secs() >= 30 {
                     self.balance.fetch(addr.clone());
-                    self.pool.fetch(addr.clone());
+                    if pools::has_ledger(self.pool_idx) {
+                        self.pool.fetch(addr.clone());
+                    }
                     self.last_balance = std::time::Instant::now();
                 }
             }
@@ -350,8 +405,19 @@ impl eframe::App for App {
                             }
 
                             // ── the payout — the one bar the player fills ──
+                            if !pools::has_ledger(self.pool_idx) {
+                                ui.add_space(10.0);
+                                ui.separator();
+                                ui.add_space(8.0);
+                                caps(
+                                    ui,
+                                    "this pool has no in-app ledger yet — track earnings on its site",
+                                    9.0,
+                                    MUTE,
+                                );
+                            }
                             let pi = self.pool.inner.lock().unwrap();
-                            if pi.ok {
+                            if pi.ok && pools::has_ledger(self.pool_idx) {
                                 ui.add_space(10.0);
                                 ui.separator();
                                 ui.add_space(8.0);
@@ -448,6 +514,8 @@ impl eframe::App for App {
                         }
                     }
                 });
+                }); // column
+            }); // centered row
 
             // ── backup panel (reveal the seed once, with a warning) ────
             if self.show_backup {
@@ -492,7 +560,15 @@ impl eframe::App for App {
                 ui.add_space(12.0);
                 caps(ui, "every share re-verified on-cpu before it is sent", 8.5, MUTE.gamma_multiply(0.8));
                 ui.add_space(2.0);
-                caps(ui, "mines autolykos v2 to herominers under your address", 8.5, MUTE.gamma_multiply(0.8));
+                caps(
+                    ui,
+                    &format!(
+                        "mines autolykos v2 to {} under your address",
+                        pools::POOLS[self.pool_idx].label
+                    ),
+                    8.5,
+                    MUTE.gamma_multiply(0.8),
+                );
             });
         });
     }
