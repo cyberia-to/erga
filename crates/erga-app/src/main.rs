@@ -48,18 +48,31 @@ fn main() -> eframe::Result<()> {
 struct App {
     miner: Miner,
     balance: BalanceState,
-    address: String,
+    wallet: Result<erga_wallet::Wallet, String>,
+    show_backup: bool,
     spin: f32,
+    last_balance: std::time::Instant,
 }
 
 impl App {
     fn new() -> Self {
+        let wallet = erga_wallet::Wallet::load_or_create();
+        let balance = BalanceState::default();
+        if let Ok(w) = &wallet {
+            balance.fetch(w.address.clone()); // show balance immediately
+        }
         App {
             miner: Miner::new(),
-            balance: BalanceState::default(),
-            address: String::new(),
+            balance,
+            wallet,
+            show_backup: false,
             spin: 0.0,
+            last_balance: std::time::Instant::now(),
         }
+    }
+
+    fn address(&self) -> Option<&str> {
+        self.wallet.as_ref().ok().map(|w| w.address.as_str())
     }
 }
 
@@ -119,10 +132,10 @@ impl eframe::App for App {
             if resp.clicked() {
                 if running {
                     self.miner.stop();
-                } else if self.address.trim().len() < 20 {
-                    self.miner.p.set_status("enter your ERGO address to mine");
+                } else if let Some(addr) = self.address().map(|a| a.to_string()) {
+                    self.miner.start(addr);
                 } else {
-                    self.miner.start(self.address.trim().to_string());
+                    self.miner.p.set_status("wallet unavailable");
                 }
             }
             if resp.hovered() {
@@ -163,35 +176,84 @@ impl eframe::App for App {
             ui.add_space(10.0);
 
             // ── wallet / balance ──────────────────────────────────────
-            ui.label(egui::RichText::new("YOUR ERGO ADDRESS — SHARES PAY OUT HERE").color(MUTE).size(11.0).strong());
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.add_enabled(
-                    !running,
-                    egui::TextEdit::singleline(&mut self.address)
-                        .hint_text("9f… (paste your wallet)")
-                        .desired_width(ui.available_width() - 84.0),
-                );
-                if ui.button("balance").clicked() {
-                    self.balance.fetch(self.address.clone());
+            let addr_opt: Option<String> = self.address().map(|a| a.to_string());
+            // auto-refresh balance every 30s so earnings appear on their own
+            if let Some(addr) = &addr_opt {
+                if self.last_balance.elapsed().as_secs() >= 30 {
+                    self.balance.fetch(addr.clone());
+                    self.last_balance = std::time::Instant::now();
                 }
-            });
-            ui.add_space(6.0);
-            {
-                let b = self.balance.inner.lock().unwrap();
-                if b.querying {
-                    ui.label(egui::RichText::new("checking…").color(MUTE).size(13.0));
-                } else if let Some(erg) = b.erg {
-                    ui.label(
-                        egui::RichText::new(format!("{erg:.4} ERG"))
-                            .color(MINT)
-                            .size(18.0)
-                            .strong(),
-                    );
-                } else if let Some(err) = &b.error {
-                    ui.label(egui::RichText::new(err).color(Color32::from_rgb(255, 140, 140)).size(12.0));
-                } else {
-                    ui.label(egui::RichText::new("confirmed balance, read-only via explorer").color(MUTE).size(12.0));
+            }
+            match &addr_opt {
+                Some(addr) => {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("YOUR WALLET — SHARES PAY OUT HERE").color(MUTE).size(11.0).strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("back up").clicked() {
+                                self.show_backup = true;
+                            }
+                        });
+                    });
+                    ui.add_space(4.0);
+                    let addr = addr.to_string();
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(&addr).color(CREAM.gamma_multiply(0.9)).size(11.5).monospace());
+                        if ui.small_button("copy").clicked() {
+                            ui.output_mut(|o| o.copied_text = addr.clone());
+                        }
+                    });
+                    ui.add_space(6.0);
+                    let b = self.balance.inner.lock().unwrap();
+                    if let Some(erg) = b.erg {
+                        ui.label(egui::RichText::new(format!("{erg:.4} ERG")).color(MINT).size(20.0).strong());
+                    } else if b.querying {
+                        ui.label(egui::RichText::new("checking balance…").color(MUTE).size(13.0));
+                    } else if let Some(err) = &b.error {
+                        ui.label(egui::RichText::new(err).color(Color32::from_rgb(255, 140, 140)).size(12.0));
+                    } else {
+                        ui.label(egui::RichText::new("0.0000 ERG").color(MINT.gamma_multiply(0.7)).size(20.0).strong());
+                    }
+                }
+                None => {
+                    ui.label(egui::RichText::new("wallet unavailable — Keychain access denied?").color(Color32::from_rgb(255, 140, 140)).size(12.0));
+                }
+            }
+
+            // ── backup panel (reveal the seed once, with a warning) ────
+            if self.show_backup {
+                let mnemonic = self.wallet.as_ref().ok().map(|w| w.mnemonic.clone());
+                let mut close = false;
+                egui::Window::new("back up your seed")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        ui.label(egui::RichText::new(
+                            "these 15 words ARE your wallet. anyone who sees them owns your\n\
+                             coins. write them on paper, never screenshot, never share.",
+                        ).color(Color32::from_rgb(255, 200, 120)).size(12.0));
+                        ui.add_space(8.0);
+                        if let Some(m) = &mnemonic {
+                            egui::Frame::none()
+                                .fill(Color32::from_rgb(4, 12, 8))
+                                .inner_margin(10.0)
+                                .rounding(8.0)
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new(m).color(MINT).size(15.0).monospace());
+                                });
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                if ui.button("copy words").clicked() {
+                                    ui.output_mut(|o| o.copied_text = m.clone());
+                                }
+                                if ui.button("I've written them down").clicked() {
+                                    close = true;
+                                }
+                            });
+                        }
+                    });
+                if close {
+                    self.show_backup = false;
                 }
             }
 

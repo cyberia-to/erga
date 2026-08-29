@@ -8,6 +8,7 @@ members = [
     "crates/autolykos",
     "crates/erga-pool",
     "crates/erga-miner",
+    "crates/erga-wallet",
 ]
 
 [profile.release]

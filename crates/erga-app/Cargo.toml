@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 erga-miner   = { path = "../erga-miner" }
+erga-wallet  = { path = "../erga-wallet" }
 eframe       = { version = "0.28", default-features = false, features = ["glow", "default_fonts"] }
 egui         = "0.28"
 ureq         = { version = "2", features = ["json"] }
