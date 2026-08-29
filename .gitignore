@@ -1,6 +1,6 @@
-target/
-node_modules/
-.DS_Store
 *.log
+.DS_Store
 .venv/
+node_modules/
 packaging/dist/
+target/
