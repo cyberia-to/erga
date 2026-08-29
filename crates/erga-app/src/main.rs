@@ -28,8 +28,8 @@ fn main() -> eframe::Result<()> {
     // headless mining lives in the CLI: `erga-miner mine <host> <port> <addr>`.
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([460.0, 872.0])
-            .with_min_inner_size([430.0, 830.0])
+            .with_inner_size([460.0, 900.0])
+            .with_min_inner_size([430.0, 858.0])
             .with_title("erga"),
         ..Default::default()
     };
@@ -422,6 +422,16 @@ impl eframe::App for App {
                                     });
                                 });
                                 ui.add_space(7.0);
+                                // a month at this pace — the number a friend asks for
+                                if let Some(day) = erg_per_day(&pi, mhs) {
+                                    let month = day * 30.0;
+                                    let usd = if pi.price_usd > 0.0 {
+                                        format!("  ·  ${:.2}", month * pi.price_usd)
+                                    } else {
+                                        String::new()
+                                    };
+                                    card_row(ui, "a month at this pace", &format!("≈ {month:.2} ERG{usd}"));
+                                }
                                 card_row(ui, "maturing", &format!("{:.5} ERG", pi.pending_erg));
                                 card_row(ui, "credited", &format!("{:.5} ERG", pi.balance_erg));
                                 if pi.paid_erg > 0.0 {
@@ -518,23 +528,30 @@ fn meter(ui: &mut egui::Ui, label: &str, frac: f32, val: &str) {
     });
 }
 
-/// The honest countdown to the first payout: remaining ERG at the better of
-/// the pool-measured 24h rate and the live local rate, against live network
-/// difficulty. Tail emission only (3 ERG/block) — fees make it arrive sooner,
-/// never later.
-fn payout_eta(pi: &pool::PoolInfo, local_mhs: f64, earned: f64) -> String {
+/// ERG earned per day at the better of the pool-measured 24h rate and the
+/// live local rate, against live network difficulty. Tail emission only
+/// (3 ERG/block) — fees make earnings arrive sooner, never later. None
+/// until the difficulty and a hashrate are both known.
+fn erg_per_day(pi: &pool::PoolInfo, local_mhs: f64) -> Option<f64> {
     let rate_mhs = pi.hashrate_24h_mhs.max(local_mhs);
     if pi.difficulty <= 0.0 || rate_mhs <= 0.01 {
-        return format!("payout at {} erg — mine to fill the bar", pi.threshold_erg);
+        return None;
     }
+    let net_hs = pi.difficulty / pool::BLOCK_TIME_S;
+    let blocks_per_day = 86_400.0 / pool::BLOCK_TIME_S;
+    Some(rate_mhs * 1e6 / net_hs * blocks_per_day * pool::BLOCK_REWARD_ERG)
+}
+
+/// The honest countdown to the first payout.
+fn payout_eta(pi: &pool::PoolInfo, local_mhs: f64, earned: f64) -> String {
+    let Some(per_day) = erg_per_day(pi, local_mhs) else {
+        return format!("payout at {} erg — mine to fill the bar", pi.threshold_erg);
+    };
     let remaining = (pi.threshold_erg - earned).max(0.0);
     if remaining <= 0.0 {
         return "payout on the next hourly run".into();
     }
-    let net_hs = pi.difficulty / pool::BLOCK_TIME_S;
-    let blocks_per_day = 86_400.0 / pool::BLOCK_TIME_S;
-    let erg_per_day = rate_mhs * 1e6 / net_hs * blocks_per_day * pool::BLOCK_REWARD_ERG;
-    let hours = remaining / erg_per_day * 24.0;
+    let hours = remaining / per_day * 24.0;
     let human = if hours < 1.0 {
         format!("{:.0} min", (hours * 60.0).max(1.0))
     } else if hours < 48.0 {

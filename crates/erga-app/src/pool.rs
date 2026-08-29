@@ -32,6 +32,7 @@ pub struct PoolInfo {
     pub hashrate_24h_mhs: f64, // our rate as the POOL measures it
     pub threshold_erg: f64,    // the pool's minimum payout
     pub difficulty: f64,       // network difficulty (0 = unknown)
+    pub price_usd: f64,        // ERG spot price per the pool (0 = unknown)
     pub error: Option<String>,
 }
 
@@ -46,6 +47,7 @@ impl Default for PoolInfo {
             hashrate_24h_mhs: 0.0,
             threshold_erg: 0.5, // herominers' floor, until the pool confirms
             difficulty: 0.0,
+            price_usd: 0.0,
             error: None,
         }
     }
@@ -75,10 +77,13 @@ impl PoolState {
                 }
                 Err(e) => p.error = Some(e),
             }
-            if let Ok((difficulty, threshold)) = net {
+            if let Ok((difficulty, threshold, price)) = net {
                 p.difficulty = difficulty;
                 if threshold > 0.0 {
                     p.threshold_erg = threshold;
+                }
+                if price > 0.0 {
+                    p.price_usd = price;
                 }
             }
         });
@@ -119,8 +124,8 @@ fn query_ledger(address: &str) -> Result<(f64, f64, f64, f64), String> {
     Ok((balance, pending, paid, hashrate_24h))
 }
 
-/// (network difficulty, payout threshold ERG)
-fn query_network() -> Result<(f64, f64), String> {
+/// (network difficulty, payout threshold ERG, ERG price USD)
+fn query_network() -> Result<(f64, f64, f64), String> {
     let json = get_json(API_STATS)?;
     let null = serde_json::Value::Null;
     let difficulty = num(
@@ -133,7 +138,13 @@ fn query_network() -> Result<(f64, f64), String> {
             .and_then(|c| c.get("minPaymentThreshold"))
             .unwrap_or(&null),
     ) / NANO;
-    Ok((difficulty, threshold))
+    let price = num(
+        json.get("pool")
+            .and_then(|p| p.get("price"))
+            .and_then(|p| p.get("usd"))
+            .unwrap_or(&null),
+    );
+    Ok((difficulty, threshold, price))
 }
 
 fn get_json(url: &str) -> Result<serde_json::Value, String> {
