@@ -8,6 +8,8 @@ use ergo_lib::wallet::ext_secret_key::ExtSecretKey;
 use ergo_lib::wallet::mnemonic::Mnemonic as ErgoMnemonic;
 use std::path::PathBuf;
 
+pub mod send;
+
 /// A wallet: the mnemonic and the address derived from it.
 pub struct Wallet {
     pub mnemonic: String,

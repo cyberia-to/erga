@@ -7,3 +7,5 @@ description = "Self-custodial Ergo wallet — mnemonic, P2PK address, via ergo-l
 [dependencies]
 ergo-lib = "0.28"
 bip39    = { version = "2", features = ["rand"] }
+ureq     = { version = "2", features = ["json"] }
+serde_json = "1"
