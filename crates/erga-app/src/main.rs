@@ -28,8 +28,8 @@ fn main() -> eframe::Result<()> {
     // headless mining lives in the CLI: `erga-miner mine <host> <port> <addr>`.
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([460.0, 815.0])
-            .with_min_inner_size([430.0, 780.0])
+            .with_inner_size([460.0, 872.0])
+            .with_min_inner_size([430.0, 830.0])
             .with_title("erga"),
         ..Default::default()
     };
@@ -37,13 +37,94 @@ fn main() -> eframe::Result<()> {
         "erga",
         options,
         Box::new(|cc| {
-            let mut visuals = egui::Visuals::dark();
-            visuals.panel_fill = BG;
-            visuals.window_fill = BG;
-            cc.egui_ctx.set_visuals(visuals);
+            setup_fonts(&cc.egui_ctx);
+            setup_style(&cc.egui_ctx);
             Ok(Box::new(App::new()))
         }),
     )
+}
+
+/// Play — the typeface of old.cyb.ai — carries the whole app. Regular for
+/// text, Bold for the numbers that matter.
+fn setup_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "play".into(),
+        egui::FontData::from_static(include_bytes!("../assets/Play-Regular.ttf")),
+    );
+    fonts.font_data.insert(
+        "play-bold".into(),
+        egui::FontData::from_static(include_bytes!("../assets/Play-Bold.ttf")),
+    );
+    fonts
+        .families
+        .get_mut(&egui::FontFamily::Proportional)
+        .unwrap()
+        .insert(0, "play".into());
+    fonts.families.insert(
+        egui::FontFamily::Name("play-bold".into()),
+        vec!["play-bold".into(), "play".into()],
+    );
+    ctx.set_fonts(fonts);
+}
+
+fn play_bold(size: f32) -> FontId {
+    FontId::new(size, egui::FontFamily::Name("play-bold".into()))
+}
+
+/// The cyber look, applied once: black panels, mint pill buttons with a thin
+/// stroke instead of egui's grey slabs, mint-tinted separators and windows.
+fn setup_style(ctx: &egui::Context) {
+    let mut v = egui::Visuals::dark();
+    v.panel_fill = BG;
+    v.window_fill = BG;
+    v.window_stroke = Stroke::new(1.0, MINT.gamma_multiply(0.30));
+    v.window_rounding = 12.0.into();
+    v.override_text_color = None;
+
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, MINT.gamma_multiply(0.14)); // separators
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, CREAM.gamma_multiply(0.88));
+
+    v.widgets.inactive.bg_fill = Color32::TRANSPARENT;
+    v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0, MINT.gamma_multiply(0.38));
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0, MINT.gamma_multiply(0.92));
+    v.widgets.inactive.rounding = 999.0.into();
+
+    v.widgets.hovered.bg_fill = MINT.gamma_multiply(0.10);
+    v.widgets.hovered.weak_bg_fill = MINT.gamma_multiply(0.10);
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0, MINT.gamma_multiply(0.9));
+    v.widgets.hovered.fg_stroke = Stroke::new(1.5, MINT);
+    v.widgets.hovered.rounding = 999.0.into();
+
+    v.widgets.active.bg_fill = MINT.gamma_multiply(0.22);
+    v.widgets.active.weak_bg_fill = MINT.gamma_multiply(0.22);
+    v.widgets.active.bg_stroke = Stroke::new(1.0, MINT);
+    v.widgets.active.fg_stroke = Stroke::new(1.5, MINT);
+    v.widgets.active.rounding = 999.0.into();
+
+    v.selection.bg_fill = MINT.gamma_multiply(0.25);
+    ctx.set_visuals(v);
+
+    let mut style = (*ctx.style()).clone();
+    style.spacing.button_padding = Vec2::new(11.0, 4.0);
+    ctx.set_style(style);
+}
+
+/// Uppercase micro-heading with letter-spacing — the old.cyb.ai label voice.
+fn caps(ui: &mut egui::Ui, text: &str, size: f32, color: Color32) {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        &text.to_uppercase(),
+        0.0,
+        egui::TextFormat {
+            font_id: FontId::proportional(size),
+            color,
+            extra_letter_spacing: 1.6,
+            ..Default::default()
+        },
+    );
+    ui.label(job);
 }
 
 struct App {
@@ -102,17 +183,20 @@ impl eframe::App for App {
             // ── header ────────────────────────────────────────────────
             ui.horizontal(|ui| {
                 ui.add_space(20.0);
-                ui.label(
-                    egui::RichText::new("ERGA")
-                        .color(CREAM)
-                        .size(20.0)
-                        .strong(),
+                let mut job = egui::text::LayoutJob::default();
+                job.append(
+                    "ERGA",
+                    0.0,
+                    egui::TextFormat {
+                        font_id: play_bold(21.0),
+                        color: CREAM,
+                        extra_letter_spacing: 3.0,
+                        ..Default::default()
+                    },
                 );
-                ui.label(
-                    egui::RichText::new("ERGO miner")
-                        .color(MUTE)
-                        .size(12.0),
-                );
+                ui.label(job);
+                ui.add_space(4.0);
+                caps(ui, "ergo miner", 10.5, MUTE);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(20.0);
                     badge(ui, "experimental");
@@ -192,13 +276,11 @@ impl eframe::App for App {
                 meter(&mut c[3], "NET", net.min(1.0), &format!("{:.0} KB/s", self.sys.down_kbs));
             });
 
-            ui.add_space(14.0);
-            ui.separator();
-            ui.add_space(10.0);
+            ui.add_space(16.0);
 
-            // ── wallet / balance ──────────────────────────────────────
+            // ── wallet card — bordered panel, the old.cyb.ai voice ────
             let addr_opt: Option<String> = self.address().map(|a| a.to_string());
-            // auto-refresh balance every 30s so earnings appear on their own
+            // auto-refresh balance + pool ledger every 30s
             if let Some(addr) = &addr_opt {
                 if self.last_balance.elapsed().as_secs() >= 30 {
                     self.balance.fetch(addr.clone());
@@ -206,91 +288,124 @@ impl eframe::App for App {
                     self.last_balance = std::time::Instant::now();
                 }
             }
-            match &addr_opt {
-                Some(addr) => {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("YOUR WALLET — SHARES PAY OUT HERE").color(MUTE).size(11.0).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("back up").clicked() {
-                                self.show_backup = true;
-                            }
-                        });
-                    });
-                    ui.add_space(4.0);
-                    let addr = addr.to_string();
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(&addr).color(CREAM.gamma_multiply(0.9)).size(11.5).monospace());
-                        if ui.small_button("copy").clicked() {
-                            ui.output_mut(|o| o.copied_text = addr.clone());
-                        }
-                    });
-                    ui.add_space(6.0);
-                    let b = self.balance.inner.lock().unwrap();
-                    if let Some(erg) = b.erg {
-                        ui.label(egui::RichText::new(format!("{erg:.4} ERG")).color(MINT).size(20.0).strong());
-                    } else if b.querying {
-                        ui.label(egui::RichText::new("checking balance…").color(MUTE).size(13.0));
-                    } else if let Some(err) = &b.error {
-                        ui.label(egui::RichText::new(err).color(Color32::from_rgb(255, 140, 140)).size(12.0));
-                    } else {
-                        ui.label(egui::RichText::new("0.0000 ERG").color(MINT.gamma_multiply(0.7)).size(20.0).strong());
-                    }
-                    drop(b);
-
-                    // ── pool ledger — what herominers has credited de facto ──
-                    let pi = self.pool.inner.lock().unwrap();
-                    if pi.ok {
-                        ui.add_space(10.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(24.0);
-                            ui.label(egui::RichText::new("AT THE POOL").color(MUTE).size(11.0).strong());
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.add_space(24.0);
-                                ui.label(
-                                    egui::RichText::new(format!("pool sees {:.0} MH/s (24h)", pi.hashrate_24h_mhs))
-                                        .color(MUTE)
-                                        .size(10.5),
-                                );
+            egui::Frame::none()
+                .stroke(Stroke::new(1.0, MINT.gamma_multiply(0.24)))
+                .rounding(12.0)
+                .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+                .outer_margin(egui::Margin::symmetric(20.0, 0.0))
+                .show(ui, |ui| {
+                    match &addr_opt {
+                        Some(addr) => {
+                            ui.horizontal(|ui| {
+                                caps(ui, "your wallet", 10.0, MUTE);
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.button(egui::RichText::new("back up").size(10.5)).clicked() {
+                                        self.show_backup = true;
+                                    }
+                                });
                             });
-                        });
-                        ui.add_space(4.0);
-                        stat_row(ui, "maturing", &format!("{:.5} ERG", pi.pending_erg));
-                        stat_row(ui, "credited", &format!("{:.5} ERG", pi.balance_erg));
-                        if pi.paid_erg > 0.0 {
-                            stat_row(ui, "paid out", &format!("{:.5} ERG", pi.paid_erg));
+                            ui.add_space(7.0);
+                            let addr_s = addr.to_string();
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(&addr_s)
+                                        .color(CREAM.gamma_multiply(0.72))
+                                        .size(10.8)
+                                        .monospace(),
+                                );
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.button(egui::RichText::new("copy").size(10.5)).clicked() {
+                                        ui.output_mut(|o| o.copied_text = addr_s.clone());
+                                    }
+                                });
+                            });
+                            ui.add_space(8.0);
+                            // the balance — the number that matters, in Play Bold
+                            let b = self.balance.inner.lock().unwrap();
+                            let (amount, dim) = match (b.erg, b.querying, &b.error) {
+                                (Some(erg), _, _) => (format!("{erg:.4}"), false),
+                                (None, true, _) => ("…".to_string(), true),
+                                (None, _, Some(_)) => ("—".to_string(), true),
+                                _ => ("0.0000".to_string(), true),
+                            };
+                            let err = b.error.clone();
+                            drop(b);
+                            ui.horizontal(|ui| {
+                                let mut job = egui::text::LayoutJob::default();
+                                job.append(
+                                    &amount,
+                                    0.0,
+                                    egui::TextFormat {
+                                        font_id: play_bold(30.0),
+                                        color: if dim { MINT.gamma_multiply(0.65) } else { MINT },
+                                        ..Default::default()
+                                    },
+                                );
+                                ui.label(job);
+                                ui.add_space(2.0);
+                                caps(ui, "erg", 11.0, MUTE);
+                            });
+                            if let Some(e) = err {
+                                ui.label(egui::RichText::new(e).color(Color32::from_rgb(255, 140, 140)).size(10.5));
+                            }
+
+                            // ── the pool ledger — earnings de facto ───
+                            let pi = self.pool.inner.lock().unwrap();
+                            if pi.ok {
+                                ui.add_space(10.0);
+                                ui.separator();
+                                ui.add_space(8.0);
+                                ui.horizontal(|ui| {
+                                    caps(ui, "at the pool", 10.0, MUTE);
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        caps(
+                                            ui,
+                                            &format!("sees {:.0} mh/s · 24h", pi.hashrate_24h_mhs),
+                                            9.0,
+                                            MUTE.gamma_multiply(0.85),
+                                        );
+                                    });
+                                });
+                                ui.add_space(6.0);
+                                card_row(ui, "maturing", &format!("{:.5} ERG", pi.pending_erg));
+                                card_row(ui, "credited", &format!("{:.5} ERG", pi.balance_erg));
+                                if pi.paid_erg > 0.0 {
+                                    card_row(ui, "paid out", &format!("{:.5} ERG", pi.paid_erg));
+                                }
+                                let toward =
+                                    ((pi.balance_erg + pi.pending_erg) / pool::PAYOUT_ERG) as f32;
+                                ui.add_space(7.0);
+                                let w = ui.available_width();
+                                let (rect, _) =
+                                    ui.allocate_exact_size(Vec2::new(w, 4.0), Sense::hover());
+                                ui.painter().rect_filled(rect, 2.0, Color32::from_rgb(26, 36, 30));
+                                let fill = egui::Rect::from_min_size(
+                                    rect.min,
+                                    Vec2::new((w * toward.clamp(0.0, 1.0)).max(3.0), 4.0),
+                                );
+                                ui.painter().rect_filled(fill, 2.0, MINT);
+                                ui.add_space(4.0);
+                                caps(
+                                    ui,
+                                    &format!(
+                                        "{:.1}% of the {} erg payout",
+                                        (toward * 100.0).min(100.0),
+                                        pool::PAYOUT_ERG
+                                    ),
+                                    9.0,
+                                    MUTE,
+                                );
+                            }
                         }
-                        // progress to the payout threshold
-                        let toward = ((pi.balance_erg + pi.pending_erg) / pool::PAYOUT_ERG) as f32;
-                        ui.add_space(4.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(24.0);
-                            let w = ui.available_width() - 24.0;
-                            let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 5.0), Sense::hover());
-                            ui.painter().rect_filled(rect, 2.5, Color32::from_rgb(30, 40, 34));
-                            let fill = egui::Rect::from_min_size(
-                                rect.min,
-                                Vec2::new(w * toward.clamp(0.0, 1.0), 5.0),
-                            );
-                            ui.painter().rect_filled(fill, 2.5, MINT);
-                        });
-                        ui.horizontal(|ui| {
-                            ui.add_space(24.0);
+                        None => {
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "{:.1}% of the {} ERG payout",
-                                    (toward * 100.0).min(100.0),
-                                    pool::PAYOUT_ERG
-                                ))
-                                .color(MUTE)
-                                .size(10.5),
+                                egui::RichText::new("wallet unavailable — could not read the seed file")
+                                    .color(Color32::from_rgb(255, 140, 140))
+                                    .size(12.0),
                             );
-                        });
+                        }
                     }
-                }
-                None => {
-                    ui.label(egui::RichText::new("wallet unavailable — could not read the seed file").color(Color32::from_rgb(255, 140, 140)).size(12.0));
-                }
-            }
+                });
 
             // ── backup panel (reveal the seed once, with a warning) ────
             if self.show_backup {
@@ -333,14 +448,9 @@ impl eframe::App for App {
             // ── honest footer ─────────────────────────────────────────
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new(
-                        "mines Autolykos v2 to herominers under your address.\n\
-                         every share is re-verified on-CPU before it is sent.",
-                    )
-                    .color(MUTE)
-                    .size(11.0),
-                );
+                caps(ui, "every share re-verified on-cpu before it is sent", 8.5, MUTE.gamma_multiply(0.8));
+                ui.add_space(2.0);
+                caps(ui, "mines autolykos v2 to herominers under your address", 8.5, MUTE.gamma_multiply(0.8));
             });
         });
     }
@@ -373,6 +483,16 @@ fn meter(ui: &mut egui::Ui, label: &str, frac: f32, val: &str) {
         ui.painter().rect_filled(fill, 2.5, col);
         ui.add_space(2.0);
         ui.label(egui::RichText::new(val).size(10.0).color(CREAM.gamma_multiply(0.85)));
+    });
+}
+
+/// A key/value row inside a card (no outer margins — the card supplies them).
+fn card_row(ui: &mut egui::Ui, key: &str, val: &str) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(key).color(MINT.gamma_multiply(0.85)).size(11.0));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(egui::RichText::new(val).color(CREAM.gamma_multiply(0.88)).size(11.5).monospace());
+        });
     });
 }
 
