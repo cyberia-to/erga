@@ -9,9 +9,7 @@ name = "erga"
 path = "src/main.rs"
 
 [dependencies]
-mine-bench   = { path = "../mine-bench" }
-rtable-bench = { path = "../rtable-bench" }
-aruminium    = { path = "../../../honeycrisp/aruminium" }
+erga-miner   = { path = "../erga-miner" }
 eframe       = { version = "0.28", default-features = false, features = ["glow", "default_fonts"] }
 egui         = "0.28"
 ureq         = { version = "2", features = ["json"] }

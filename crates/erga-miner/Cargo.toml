@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "GPU-exact Autolykos v2 miner — differential-tested against the chain-verified reference"
 
+[lib]
+name = "erga_miner"
+path = "src/lib.rs"
+
 [[bin]]
 name = "erga-miner"
 path = "src/main.rs"

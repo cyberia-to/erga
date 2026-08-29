@@ -7,9 +7,9 @@
 //! search for real shares. Only after it passes does mining make sense.
 
 use aruminium::Gpu;
-
-mod gpu;
-mod mine;
+use erga_miner::engine::{self, PoolCfg, Progress};
+use erga_miner::gpu;
+use std::sync::atomic::Ordering;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -22,7 +22,27 @@ fn main() {
                 .get(4)
                 .cloned()
                 .unwrap_or_else(|| "9fRAWhdxEsTcdb8PhGNrZfwqa65zfkuYHAMmkQLcic1gdLSV5vA".into());
-            mine::run(&host, port, &address);
+            let p = Progress::new();
+            let pc = p.clone();
+            let h = std::thread::spawn(move || engine::run(PoolCfg { host, port, address }, pc));
+            // report from the shared progress until the engine stops
+            let mut last = String::new();
+            while !h.is_finished() {
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                let st = p.status.lock().unwrap().clone();
+                let acc = p.accepted.load(Ordering::Relaxed);
+                let rej = p.rejected.load(Ordering::Relaxed);
+                let line = format!(
+                    "{:>6.1} MH/s | height {} | accepted {acc} rejected {rej} | {st}",
+                    p.mhs(),
+                    p.height.load(Ordering::Relaxed)
+                );
+                if line != last {
+                    println!("{line}");
+                    last = line;
+                }
+            }
+            let _ = h.join();
         }
         other => {
             eprintln!("unknown command: {other}");

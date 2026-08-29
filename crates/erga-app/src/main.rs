@@ -24,25 +24,7 @@ const CREAM: Color32 = Color32::from_rgb(255, 248, 240);
 const MUTE: Color32 = Color32::from_rgb(120, 140, 128);
 
 fn main() -> eframe::Result<()> {
-    // Headless self-test: drive the real miner without a window so the
-    // GPU path can be verified in CI / over ssh. `erga --smoke`.
-    if std::env::args().any(|a| a == "--smoke") {
-        let mut m = Miner::new();
-        m.start();
-        for _ in 0..12 {
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            let s = &m.shared;
-            eprintln!(
-                "  {:>8.1} MH/s  [{}]  {}",
-                s.mhs(),
-                s.status.lock().unwrap(),
-                s.device.lock().unwrap()
-            );
-        }
-        m.stop();
-        return Ok(());
-    }
-
+    // headless mining lives in the CLI: `erga-miner mine <host> <port> <addr>`.
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([460.0, 660.0])
@@ -137,8 +119,10 @@ impl eframe::App for App {
             if resp.clicked() {
                 if running {
                     self.miner.stop();
+                } else if self.address.trim().len() < 20 {
+                    self.miner.p.set_status("enter your ERGO address to mine");
                 } else {
-                    self.miner.start();
+                    self.miner.start(self.address.trim().to_string());
                 }
             }
             if resp.hovered() {
@@ -146,42 +130,32 @@ impl eframe::App for App {
             }
 
             // ── live hashrate ─────────────────────────────────────────
+            let p = &self.miner.p;
             ui.add_space(6.0);
             ui.vertical_centered(|ui| {
-                let mhs = self.miner.shared.mhs();
-                let rate = if running {
-                    format!("{mhs:.1}")
-                } else {
-                    "—".to_string()
-                };
-                ui.label(
-                    egui::RichText::new(rate)
-                        .color(MINT)
-                        .size(46.0)
-                        .strong(),
-                );
+                let rate = if running { format!("{:.1}", p.mhs()) } else { "—".to_string() };
+                ui.label(egui::RichText::new(rate).color(MINT).size(46.0).strong());
                 ui.label(egui::RichText::new("MH/s").color(MUTE).size(13.0));
-
-                let status = self.miner.shared.status.lock().unwrap().clone();
+                let status = p.status.lock().unwrap().clone();
                 ui.add_space(2.0);
                 ui.label(egui::RichText::new(status).color(MUTE).size(12.0));
             });
 
             ui.add_space(12.0);
-            stat_row(ui, "device", &self.miner.shared.device.lock().unwrap());
             {
-                let log2n = self.miner.shared.log2n.load(std::sync::atomic::Ordering::Relaxed);
-                let tbl = if log2n > 0 {
-                    let mib = (1u64 << log2n) * 32 / (1024 * 1024);
-                    format!("2^{log2n} rows · {mib} MiB pinned")
-                } else {
-                    "—".into()
-                };
-                stat_row(ui, "table", &tbl);
+                let acc = p.accepted.load(std::sync::atomic::Ordering::Relaxed);
+                let rej = p.rejected.load(std::sync::atomic::Ordering::Relaxed);
+                let shares = if rej > 0 { format!("{acc}  ({rej} rejected)") } else { format!("{acc}") };
+                stat_row(ui, "shares", &shares);
+            }
+            stat_row(ui, "device", &p.device.lock().unwrap());
+            {
+                let h = p.height.load(std::sync::atomic::Ordering::Relaxed);
+                stat_row(ui, "block", &(if h > 0 { h.to_string() } else { "—".into() }));
             }
             {
-                let total = self.miner.shared.total_nonces.load(std::sync::atomic::Ordering::Relaxed);
-                stat_row(ui, "hashed", &format!("{}", human(total)));
+                let total = p.hashed.load(std::sync::atomic::Ordering::Relaxed);
+                stat_row(ui, "hashed", &human(total));
             }
 
             ui.add_space(14.0);
@@ -189,12 +163,13 @@ impl eframe::App for App {
             ui.add_space(10.0);
 
             // ── wallet / balance ──────────────────────────────────────
-            ui.label(egui::RichText::new("YOUR ERGO ADDRESS").color(MUTE).size(11.0).strong());
+            ui.label(egui::RichText::new("YOUR ERGO ADDRESS — SHARES PAY OUT HERE").color(MUTE).size(11.0).strong());
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.add(
+                ui.add_enabled(
+                    !running,
                     egui::TextEdit::singleline(&mut self.address)
-                        .hint_text("9f…")
+                        .hint_text("9f… (paste your wallet)")
                         .desired_width(ui.available_width() - 84.0),
                 );
                 if ui.button("balance").clicked() {
@@ -225,8 +200,8 @@ impl eframe::App for App {
                 ui.add_space(12.0);
                 ui.label(
                     egui::RichText::new(
-                        "local mining benchmark — proves efficiency on your Mac.\n\
-                         pool payout & share submission land in the next build.",
+                        "mines Autolykos v2 to herominers under your address.\n\
+                         every share is re-verified on-CPU before it is sent.",
                     )
                     .color(MUTE)
                     .size(11.0),
