@@ -10,6 +10,7 @@
 
 mod balance;
 mod miner;
+mod pool;
 mod stats;
 
 use eframe::egui;
@@ -27,8 +28,8 @@ fn main() -> eframe::Result<()> {
     // headless mining lives in the CLI: `erga-miner mine <host> <port> <addr>`.
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([460.0, 752.0])
-            .with_min_inner_size([430.0, 720.0])
+            .with_inner_size([460.0, 815.0])
+            .with_min_inner_size([430.0, 780.0])
             .with_title("erga"),
         ..Default::default()
     };
@@ -48,6 +49,7 @@ fn main() -> eframe::Result<()> {
 struct App {
     miner: Miner,
     balance: BalanceState,
+    pool: pool::PoolState,
     wallet: Result<erga_wallet::Wallet, String>,
     show_backup: bool,
     spin: f32,
@@ -59,12 +61,15 @@ impl App {
     fn new() -> Self {
         let wallet = erga_wallet::Wallet::load_or_create();
         let balance = BalanceState::default();
+        let pool = pool::PoolState::default();
         if let Ok(w) = &wallet {
             balance.fetch(w.address.clone()); // show balance immediately
+            pool.fetch(w.address.clone()); // and what the pool owes us
         }
         App {
             miner: Miner::new(),
             balance,
+            pool,
             wallet,
             show_backup: false,
             spin: 0.0,
@@ -197,6 +202,7 @@ impl eframe::App for App {
             if let Some(addr) = &addr_opt {
                 if self.last_balance.elapsed().as_secs() >= 30 {
                     self.balance.fetch(addr.clone());
+                    self.pool.fetch(addr.clone());
                     self.last_balance = std::time::Instant::now();
                 }
             }
@@ -228,6 +234,57 @@ impl eframe::App for App {
                         ui.label(egui::RichText::new(err).color(Color32::from_rgb(255, 140, 140)).size(12.0));
                     } else {
                         ui.label(egui::RichText::new("0.0000 ERG").color(MINT.gamma_multiply(0.7)).size(20.0).strong());
+                    }
+                    drop(b);
+
+                    // ── pool ledger — what herominers has credited de facto ──
+                    let pi = self.pool.inner.lock().unwrap();
+                    if pi.ok {
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(24.0);
+                            ui.label(egui::RichText::new("AT THE POOL").color(MUTE).size(11.0).strong());
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.add_space(24.0);
+                                ui.label(
+                                    egui::RichText::new(format!("pool sees {:.0} MH/s (24h)", pi.hashrate_24h_mhs))
+                                        .color(MUTE)
+                                        .size(10.5),
+                                );
+                            });
+                        });
+                        ui.add_space(4.0);
+                        stat_row(ui, "maturing", &format!("{:.5} ERG", pi.pending_erg));
+                        stat_row(ui, "credited", &format!("{:.5} ERG", pi.balance_erg));
+                        if pi.paid_erg > 0.0 {
+                            stat_row(ui, "paid out", &format!("{:.5} ERG", pi.paid_erg));
+                        }
+                        // progress to the payout threshold
+                        let toward = ((pi.balance_erg + pi.pending_erg) / pool::PAYOUT_ERG) as f32;
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(24.0);
+                            let w = ui.available_width() - 24.0;
+                            let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 5.0), Sense::hover());
+                            ui.painter().rect_filled(rect, 2.5, Color32::from_rgb(30, 40, 34));
+                            let fill = egui::Rect::from_min_size(
+                                rect.min,
+                                Vec2::new(w * toward.clamp(0.0, 1.0), 5.0),
+                            );
+                            ui.painter().rect_filled(fill, 2.5, MINT);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add_space(24.0);
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{:.1}% of the {} ERG payout",
+                                    (toward * 100.0).min(100.0),
+                                    pool::PAYOUT_ERG
+                                ))
+                                .color(MUTE)
+                                .size(10.5),
+                            );
+                        });
                     }
                 }
                 None => {
