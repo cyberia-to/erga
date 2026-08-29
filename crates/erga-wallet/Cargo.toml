@@ -2,9 +2,8 @@
 name = "erga-wallet"
 version = "0.1.0"
 edition = "2021"
-description = "Self-custodial Ergo wallet — mnemonic, P2PK address, Keychain, via ergo-lib"
+description = "Self-custodial Ergo wallet — mnemonic, P2PK address, via ergo-lib"
 
 [dependencies]
 ergo-lib = "0.28"
 bip39    = { version = "2", features = ["rand"] }
-keyring  = "4"

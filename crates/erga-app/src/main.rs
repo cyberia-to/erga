@@ -1,16 +1,16 @@
-//! erga — one-button ERGO miner for Apple Silicon.
+//! erga — one-button ERGO miner + wallet for Apple Silicon.
 //!
-//! Open it, press the crystal, watch the hashrate. The miner runs the
-//! honeycrisp zero-copy Autolykos v2 kernel measured in the erga study
-//! (32 MH/s at 8.3 W sustained on an M4 Max — 2.4× an RTX 3090 per watt).
-//!
-//! v0.1 is a local mining benchmark: it proves the efficiency on *your*
-//! Mac. Pool connection and share submission are the next build.
+//! Open it: a self-custodial Ergo wallet is generated for you. Press the
+//! crystal and it mines Autolykos v2 to a pool under that address, on the
+//! honeycrisp zero-copy GPU kernel (32 MH/s at 8.3 W sustained on an M4
+//! Max — 2.4× an RTX 3090 per watt). Watch the hashrate, the accepted
+//! shares, and your balance grow.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod balance;
 mod miner;
+mod stats;
 
 use eframe::egui;
 use egui::{Align2, Color32, FontId, Pos2, Sense, Stroke, Vec2};
@@ -27,8 +27,8 @@ fn main() -> eframe::Result<()> {
     // headless mining lives in the CLI: `erga-miner mine <host> <port> <addr>`.
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([460.0, 660.0])
-            .with_min_inner_size([420.0, 600.0])
+            .with_inner_size([460.0, 752.0])
+            .with_min_inner_size([430.0, 720.0])
             .with_title("erga"),
         ..Default::default()
     };
@@ -52,6 +52,7 @@ struct App {
     show_backup: bool,
     spin: f32,
     last_balance: std::time::Instant,
+    sys: stats::Sys,
 }
 
 impl App {
@@ -68,6 +69,7 @@ impl App {
             show_backup: false,
             spin: 0.0,
             last_balance: std::time::Instant::now(),
+            sys: stats::Sys::new(),
         }
     }
 
@@ -83,11 +85,11 @@ impl eframe::App for App {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let running = self.miner.is_running();
-        // keep the frame ticking while mining so the hashrate updates live
         if running {
             self.spin += 0.01;
-            ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
+        // keep ticking so hashrate, dashboard and balance stay live
+        ctx.request_repaint_after(std::time::Duration::from_millis(if running { 250 } else { 1000 }));
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(18.0);
@@ -170,6 +172,20 @@ impl eframe::App for App {
                 let total = p.hashed.load(std::sync::atomic::Ordering::Relaxed);
                 stat_row(ui, "hashed", &human(total));
             }
+
+            // ── system dashboard row ──────────────────────────────────
+            self.sys.refresh();
+            let mhs = p.mhs();
+            ui.add_space(12.0);
+            ui.columns(4, |c| {
+                meter(&mut c[0], "CPU", self.sys.cpu, &format!("{:.0}%", self.sys.cpu * 100.0));
+                // GPU has no privilege-free utilisation read — its live signal
+                // is the hashrate, scaled against ~80 MH/s (the M4 Max ceiling)
+                meter(&mut c[1], "GPU", (mhs / 80.0) as f32, &format!("{mhs:.0} MH/s"));
+                meter(&mut c[2], "RAM", self.sys.mem, &format!("{:.0}%", self.sys.mem * 100.0));
+                let net = ((self.sys.down_kbs + self.sys.up_kbs) / 2048.0) as f32; // vs ~2 MB/s
+                meter(&mut c[3], "NET", net.min(1.0), &format!("{:.0} KB/s", self.sys.down_kbs));
+            });
 
             ui.add_space(14.0);
             ui.separator();
@@ -283,6 +299,24 @@ fn badge(ui: &mut egui::Ui, text: &str) {
     let (rect, _) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::hover());
     ui.painter().rect_stroke(rect, 999.0, Stroke::new(1.0, MINT.gamma_multiply(0.5)));
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, MINT);
+}
+
+/// A compact dashboard meter: label, a thin fill bar (0..1), a value.
+fn meter(ui: &mut egui::Ui, label: &str, frac: f32, val: &str) {
+    ui.vertical_centered(|ui| {
+        ui.label(egui::RichText::new(label).size(9.0).color(MINT).strong());
+        ui.add_space(2.0);
+        let w = ui.available_width().min(90.0);
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 5.0), Sense::hover());
+        let bg = egui::Rect::from_min_size(rect.min, Vec2::new(w, 5.0));
+        ui.painter().rect_filled(bg, 2.5, Color32::from_rgb(30, 40, 34));
+        let f = frac.clamp(0.0, 1.0);
+        let fill = egui::Rect::from_min_size(rect.min, Vec2::new(w * f, 5.0));
+        let col = if f > 0.9 { Color32::from_rgb(255, 180, 120) } else { MINT };
+        ui.painter().rect_filled(fill, 2.5, col);
+        ui.add_space(2.0);
+        ui.label(egui::RichText::new(val).size(10.0).color(CREAM.gamma_multiply(0.85)));
+    });
 }
 
 fn stat_row(ui: &mut egui::Ui, key: &str, val: &str) {

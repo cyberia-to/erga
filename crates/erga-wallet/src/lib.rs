@@ -6,9 +6,7 @@ use ergo_lib::ergotree_ir::chain::address::{Address, AddressEncoder, NetworkPref
 use ergo_lib::wallet::derivation_path::{ChildIndexHardened, ChildIndexNormal, DerivationPath};
 use ergo_lib::wallet::ext_secret_key::ExtSecretKey;
 use ergo_lib::wallet::mnemonic::Mnemonic as ErgoMnemonic;
-
-const SERVICE: &str = "ai.cyber.erga";
-const ACCOUNT: &str = "ergo-mnemonic";
+use std::path::PathBuf;
 
 /// A wallet: the mnemonic and the address derived from it.
 pub struct Wallet {
@@ -30,20 +28,50 @@ impl Wallet {
     }
 
     /// Load the stored wallet, or generate + store a new one on first run.
+    ///
+    /// The seed lives in a `0600` file under Application Support. A macOS
+    /// Keychain item would be encrypted at rest but prompts for the login
+    /// password whenever the app's code signature changes — hostile to a
+    /// one-click miner. The `back up your seed` flow makes the real backup
+    /// the user's paper copy; this file is just so the app remembers itself.
     pub fn load_or_create() -> Result<Wallet, String> {
-        if let Some(phrase) = keychain_get()? {
-            return Wallet::from_phrase(&phrase);
+        if let Some(phrase) = seed_read()? {
+            return Wallet::from_phrase(phrase.trim());
         }
         let w = Wallet::generate()?;
-        keychain_set(&w.mnemonic)?;
+        seed_write(&w.mnemonic)?;
         Ok(w)
     }
+}
 
-    pub fn forget() -> Result<(), String> {
-        let e = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-        let _ = e.delete_credential();
-        Ok(())
+fn seed_path() -> Result<PathBuf, String> {
+    let home = std::env::var("HOME").map_err(|_| "no HOME".to_string())?;
+    Ok(PathBuf::from(home).join("Library/Application Support/ai.cyber.erga/seed"))
+}
+
+fn seed_read() -> Result<Option<String>, String> {
+    let p = seed_path()?;
+    match std::fs::read_to_string(&p) {
+        Ok(s) if !s.trim().is_empty() => Ok(Some(s)),
+        Ok(_) => Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("read seed: {e}")),
     }
+}
+
+fn seed_write(phrase: &str) -> Result<(), String> {
+    let p = seed_path()?;
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("mkdir: {e}"))?;
+    }
+    std::fs::write(&p, phrase).map_err(|e| format!("write seed: {e}"))?;
+    // owner-only permissions
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
 }
 
 /// m/44'/429'/0'/0/0 → P2PK mainnet address (EIP-3).
@@ -61,20 +89,6 @@ fn derive_p2pk_address(phrase: &str) -> Result<String, String> {
     let ext_pub = key.public_key().map_err(|e| format!("pubkey: {e:?}"))?;
     let address: Address = ext_pub.into();
     Ok(AddressEncoder::new(NetworkPrefix::Mainnet).address_to_str(&address))
-}
-
-fn keychain_get() -> Result<Option<String>, String> {
-    let e = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    match e.get_password() {
-        Ok(p) => Ok(Some(p)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-fn keychain_set(phrase: &str) -> Result<(), String> {
-    let e = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    e.set_password(phrase).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
