@@ -1,0 +1,13 @@
+[package]
+name = "autolykos"
+version = "0.1.0"
+edition = "2021"
+description = "Protocol-exact Autolykos v2 reference for Ergo, differential-tested against sigma-rust vectors"
+
+[dependencies]
+blake-bench = { path = "../blake-bench" }
+num-bigint = "0.4"
+num-traits = "0.2"
+
+[lib]
+path = "src/lib.rs"
