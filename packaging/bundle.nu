@@ -8,7 +8,7 @@
 
 def main [] {
     let root = ($env.FILE_PWD | path dirname)
-    let ver = "0.5.1"
+    let ver = "0.5.2"
     let dist = ($env.FILE_PWD | path join "dist")
     let app = ($dist | path join "erga.app")
 
@@ -35,6 +35,7 @@ def main [] {
     cp ($env.FILE_PWD | path join "Info.plist") ($app | path join "Contents/Info.plist")
     cp $bin ($app | path join "Contents/MacOS/erga")
     cp $miner ($app | path join "Contents/MacOS/erga-miner")
+    cp ($env.FILE_PWD | path join "erga.icns") ($app | path join "Contents/Resources/erga.icns")
     "APPL????" | save -f ($app | path join "Contents/PkgInfo")
 
     # ad-hoc sign so Gatekeeper shows a name, not a corrupt binary
