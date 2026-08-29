@@ -92,6 +92,16 @@ impl Miner {
             }
         };
 
+        // Keep the Mac awake while mining — a sleeping machine mines nothing,
+        // and lost nights dominate every other optimisation. caffeinate ties
+        // itself to the miner's pid (-w) and exits with it; the display may
+        // still sleep, the machine may not (-i idle, -s system-on-AC).
+        let _ = Command::new("caffeinate")
+            .args(["-is", "-w", &child.id().to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+
         self.p.running.store(true, Ordering::Relaxed);
         let p = self.p.clone();
         self.reader = Some(std::thread::spawn(move || {
