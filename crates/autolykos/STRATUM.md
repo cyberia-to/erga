@@ -38,24 +38,29 @@ not reconstructed from docs. This is what the miner must speak.
 - A share is valid when `pow_hit(msg, nonce, height) < b` (job `[6]`).
   `set_difficulty` adjusts `b` via vardiff on subsequent messages.
 
-## submit
+## submit — CONFIRMED accepted
+
+The Bitcoin-style 5-param array (ErgoStratumProxy / ErgoStratumServer),
+NOT the 3-param nicehash form. This exact frame was accepted live by
+herominers (2026-08-29):
 
 ```
-→ {"id":N,"method":"mining.submit","params":[
-     "<ADDRESS>.<worker>",   // worker
-     "0",                    // jobId
-     "<extraNonce2 hex>"     // the searched tail; full nonce = extraNonce1 ++ this
+→ {"id":101,"method":"mining.submit","params":[
+     "<ADDRESS>.erga",       // [0] worker
+     "0",                    // [1] jobId
+     "00001afa664d",         // [2] extraNonce2 — the searched suffix
+     "",                     // [3] nTime (empty for Autolykos)
+     "7ad200001afa664d"      // [4] full nonce (keeps the extraNonce1 prefix 7ad2)
   ]}
-← {"id":N,"error":null,"result":true}   // accepted
+← {"id":101,"error":null,"result":true}   // ACCEPTED
 ```
 
-## what is verified vs pending
+The full nonce keeps the pool's `extraNonce1` as its top bytes; the
+`extraNonce2` field is that same nonce with the prefix stripped.
 
-Verified against the chain (`cargo test -p autolykos`): the `pow_hit`
-computed here equals sigma-rust's own test vector, and the table-read
-search finds nonces that clear a target. So the **hit math a share stands
-on is correct**.
+## verified end to end
 
-Pending live confirmation: this exact notify/submit framing round-trips
-to an accepted share. That needs the miner running against the pool long
-enough to find one at share difficulty — the final integration step.
+- chain (`cargo test -p autolykos`): `pow_hit` == sigma-rust's vector.
+- GPU (`erga-miner difftest`): kernel hit == the reference, byte-exact,
+  and the GPU table build self-checks against the CPU element.
+- live: herominers accepted a real share (above) — it earns.

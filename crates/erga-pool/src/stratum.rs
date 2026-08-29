@@ -45,53 +45,86 @@ impl Stratum {
         let mut w = stream.try_clone()?;
 
         writeln!(w, "{}", json!({"id":1,"method":"mining.subscribe","params":["erga/0.1.0", null]}))?;
+        w.flush()?;
+
+        let mut reader = BufReader::new(stream.try_clone()?);
+        let en1 = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+
+        // Read the subscribe reply synchronously so extranonce1 is captured
+        // before we ever mine — no race. (id:1 reply carries [sub, en1, size].)
+        {
+            let mut line = String::new();
+            for _ in 0..10 {
+                line.clear();
+                if reader.read_line(&mut line)? == 0 {
+                    break;
+                }
+                if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                    if v.get("id").and_then(|x| x.as_u64()) == Some(1) {
+                        if let Some(arr) = v.get("result").and_then(|r| r.as_array()) {
+                            if let Some(h) = arr.get(1).and_then(|x| x.as_str()) {
+                                *en1.lock().unwrap() = hex_to_bytes(h);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
         writeln!(w, "{}", json!({"id":2,"method":"mining.authorize","params":[format!("{address}.{worker}"),"x"]}))?;
         w.flush()?;
 
-        let reader = BufReader::new(stream.try_clone()?);
         let (tx, rx) = channel();
-        // extranonce1 is filled from the subscribe reply before the first job
-        let en1 = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
         let en1_reader = en1.clone();
-
         std::thread::spawn(move || {
-            for line in reader.lines() {
-                let line = match line {
-                    Ok(l) => l,
-                    Err(_) => break,
-                };
-                let v: Value = match serde_json::from_str(&line) {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                if let Some(ev) = parse_line(&v, &en1_reader) {
-                    if tx.send(ev).is_err() {
-                        break;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+                if std::env::var("ERGA_DEBUG").is_ok() {
+                    eprint!("← {line}");
+                }
+                if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                    if let Some(ev) = parse_line(&v, &en1_reader) {
+                        if tx.send(ev).is_err() {
+                            break;
+                        }
                     }
                 }
             }
             let _ = tx.send(PoolEvent::Closed);
         });
 
-        // wait briefly for the subscribe reply to populate extranonce1
-        std::thread::sleep(std::time::Duration::from_millis(400));
         let extranonce1 = en1.lock().unwrap().clone();
-
         Ok(Stratum { stream, extranonce1, events: rx, submit_id: 100 })
     }
 
-    /// Submit the searched extraNonce2 tail for a job. Ready and framed per
-    /// STRATUM.md; driven by the GPU miner in the next build.
-    #[allow(dead_code)]
-    pub fn submit(&mut self, address: &str, worker: &str, job_id: &str, en2_hex: &str) -> std::io::Result<u64> {
+    /// Submit a share. Ergo/herominers uses the Bitcoin-style 5-param array
+    /// `[worker, jobId, extraNonce2, nTime, nonce]` (per ErgoStratumProxy /
+    /// ErgoStratumServer): the full nonce keeps the pool's extraNonce1 prefix,
+    /// extraNonce2 is the suffix the miner searched.
+    pub fn submit(
+        &mut self,
+        address: &str,
+        worker: &str,
+        job_id: &str,
+        en2_hex: &str,
+        nonce_hex: &str,
+        ntime: &str,
+    ) -> std::io::Result<u64> {
         self.submit_id += 1;
         let id = self.submit_id;
         let mut w = self.stream.try_clone()?;
-        writeln!(
-            w,
-            "{}",
-            json!({"id":id,"method":"mining.submit","params":[format!("{address}.{worker}"), job_id, en2_hex]})
-        )?;
+        let msg = json!({"id":id,"method":"mining.submit",
+            "params":[format!("{address}.{worker}"), job_id, en2_hex, ntime, nonce_hex]});
+        if std::env::var("ERGA_DEBUG").is_ok() {
+            eprintln!("→ {msg}");
+        }
+        writeln!(w, "{msg}")?;
         w.flush()?;
         Ok(id)
     }

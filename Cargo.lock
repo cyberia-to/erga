@@ -630,6 +630,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "erga-miner"
+version = "0.1.0"
+dependencies = [
+ "aruminium",
+ "autolykos",
+ "blake-bench",
+ "erga-pool",
+ "num-bigint",
+ "num-traits",
+]
+
+[[package]]
 name = "erga-pool"
 version = "0.1.0"
 dependencies = [

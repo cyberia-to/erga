@@ -1,0 +1,17 @@
+[package]
+name = "erga-miner"
+version = "0.1.0"
+edition = "2021"
+description = "GPU-exact Autolykos v2 miner — differential-tested against the chain-verified reference"
+
+[[bin]]
+name = "erga-miner"
+path = "src/main.rs"
+
+[dependencies]
+autolykos   = { path = "../autolykos" }
+blake-bench = { path = "../blake-bench" }
+erga-pool   = { path = "../erga-pool" }
+aruminium   = { path = "../../../honeycrisp/aruminium" }
+num-bigint  = "0.4"
+num-traits  = "0.2"
