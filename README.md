@@ -11,6 +11,36 @@ Status: **research artifact, experimental.** The kernels are real and
 measured; a pool-ready miner is not built yet (see
 [what this is not](#what-this-is-not-yet)).
 
+## the app — one button
+
+`erga.app` is a menu-free desktop miner: open it, press the crystal,
+watch the hashrate climb. It runs the same honeycrisp zero-copy kernel
+the study measured, shows live MH/s, the device, the pinned table size,
+and — read-only, via the public explorer — the confirmed balance of any
+address you paste.
+
+Download the `.dmg` from [Releases](https://github.com/cyberia-to/erga/releases).
+It is not yet notarized, so the first launch needs one line to clear the
+quarantine flag Gatekeeper sets on downloaded apps:
+
+```
+xattr -dr com.apple.quarantine /Applications/erga.app
+```
+
+then open it normally. v0.1 is a **local mining benchmark** — it proves
+the efficiency on *your* Mac. Pool connection and share submission are
+the next build (see [what this is not](#what-this-is-not-yet)).
+
+Build it yourself:
+
+```
+git clone https://github.com/cyberia-to/honeycrisp ../honeycrisp
+nu packaging/bundle.nu        # → packaging/dist/erga.app + erga-<ver>.dmg
+# or just run it:
+cargo run --release -p erga-app
+cargo run --release -p erga-app -- --smoke   # headless: prints live MH/s
+```
+
 ## the result
 
 Measured on a MacBook Pro M4 Max (40-core GPU), `powermetrics` sampling

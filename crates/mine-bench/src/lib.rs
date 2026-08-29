@@ -437,7 +437,7 @@ pub fn cpu_mine_for(
     threads: usize,
 ) -> u64 {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     let r_bytes: &[u8] = table.block.as_bytes();
     let n = table.n;

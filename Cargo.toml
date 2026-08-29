@@ -4,6 +4,7 @@ members = [
     "crates/blake-bench",
     "crates/rtable-bench",
     "crates/mine-bench",
+    "crates/erga-app",
 ]
 
 [profile.release]
