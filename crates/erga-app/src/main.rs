@@ -231,7 +231,7 @@ impl eframe::App for App {
                     }
                 }
                 None => {
-                    ui.label(egui::RichText::new("wallet unavailable — Keychain access denied?").color(Color32::from_rgb(255, 140, 140)).size(12.0));
+                    ui.label(egui::RichText::new("wallet unavailable — could not read the seed file").color(Color32::from_rgb(255, 140, 140)).size(12.0));
                 }
             }
 

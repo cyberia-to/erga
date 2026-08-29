@@ -8,18 +8,24 @@
 
 def main [] {
     let root = ($env.FILE_PWD | path dirname)
-    let ver = "0.3.0"
+    let ver = "0.4.0"
     let dist = ($env.FILE_PWD | path join "dist")
     let app = ($dist | path join "erga.app")
 
-    print "building release binary…"
+    print "building release binaries…"
     with-env {RUSTC_BOOTSTRAP: "1"} {
         cd $root
-        ^cargo build --release -p erga-app
+        # the GUI (erga) spawns the CLI miner (erga-miner) as an isolated
+        # subprocess, so both binaries must ship inside the bundle.
+        ^cargo build --release -p erga-app -p erga-miner
     }
     let bin = ($root | path join "target/release/erga")
+    let miner = ($root | path join "target/release/erga-miner")
     if not ($bin | path exists) {
         error make {msg: $"binary not found at ($bin)"}
+    }
+    if not ($miner | path exists) {
+        error make {msg: $"miner binary not found at ($miner)"}
     }
 
     print "assembling erga.app…"
@@ -28,6 +34,7 @@ def main [] {
     mkdir ($app | path join "Contents/Resources")
     cp ($env.FILE_PWD | path join "Info.plist") ($app | path join "Contents/Info.plist")
     cp $bin ($app | path join "Contents/MacOS/erga")
+    cp $miner ($app | path join "Contents/MacOS/erga-miner")
     "APPL????" | save -f ($app | path join "Contents/PkgInfo")
 
     # ad-hoc sign so Gatekeeper shows a name, not a corrupt binary

@@ -22,24 +22,47 @@ fn main() {
                 .get(4)
                 .cloned()
                 .unwrap_or_else(|| "9fRAWhdxEsTcdb8PhGNrZfwqa65zfkuYHAMmkQLcic1gdLSV5vA".into());
+            // `--machine` emits parseable STAT/DEVICE lines for a front-end to
+            // consume; the default is the human-readable one-liner.
+            let machine = args.iter().any(|a| a == "--machine");
             let p = Progress::new();
             let pc = p.clone();
             let h = std::thread::spawn(move || engine::run(PoolCfg { host, port, address }, pc));
             // report from the shared progress until the engine stops
             let mut last = String::new();
+            let mut device_sent = false;
             while !h.is_finished() {
-                std::thread::sleep(std::time::Duration::from_millis(1000));
+                std::thread::sleep(std::time::Duration::from_millis(500));
                 let st = p.status.lock().unwrap().clone();
                 let acc = p.accepted.load(Ordering::Relaxed);
                 let rej = p.rejected.load(Ordering::Relaxed);
-                let line = format!(
-                    "{:>6.1} MH/s | height {} | accepted {acc} rejected {rej} | {st}",
-                    p.mhs(),
-                    p.height.load(Ordering::Relaxed)
-                );
-                if line != last {
-                    println!("{line}");
-                    last = line;
+                if machine {
+                    if !device_sent {
+                        let dev = p.device.lock().unwrap().clone();
+                        if !dev.is_empty() {
+                            println!("DEVICE {dev}");
+                            device_sent = true;
+                        }
+                    }
+                    // status may contain spaces; keep it last, one field per token
+                    println!(
+                        "STAT {} {} {acc} {rej} {} {st}",
+                        p.rate_khs.load(Ordering::Relaxed),
+                        p.height.load(Ordering::Relaxed),
+                        p.hashed.load(Ordering::Relaxed),
+                    );
+                    use std::io::Write;
+                    let _ = std::io::stdout().flush();
+                } else {
+                    let line = format!(
+                        "{:>6.1} MH/s | height {} | accepted {acc} rejected {rej} | {st}",
+                        p.mhs(),
+                        p.height.load(Ordering::Relaxed)
+                    );
+                    if line != last {
+                        println!("{line}");
+                        last = line;
+                    }
                 }
             }
             let _ = h.join();
