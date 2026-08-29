@@ -12,6 +12,9 @@ use blake_bench::reference::blake2b256;
 use num_bigint::BigUint;
 use num_traits::Zero;
 
+pub mod table;
+pub mod search;
+
 pub const K: usize = 32; // reads per nonce
 pub const N_BASE: u32 = 1 << 26; // 67,108,864
 
@@ -40,6 +43,11 @@ pub fn calc_big_n(header_version: u8, header_height: u32) -> u32 {
 /// Height bytes as fed into the element and seed hashes: 4-byte big-endian.
 pub fn height_bytes(height: u32) -> [u8; 4] {
     height.to_be_bytes()
+}
+
+/// Public re-export for the table module (same padding rule).
+pub fn as_unsigned_byte_array_pub(len: usize, x: &BigUint) -> Vec<u8> {
+    as_unsigned_byte_array(len, x)
 }
 
 /// Left-zero-padded big-endian bytes of `x`, exactly `len` wide

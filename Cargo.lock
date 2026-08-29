@@ -630,6 +630,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "erga-pool"
+version = "0.1.0"
+dependencies = [
+ "autolykos",
+ "blake-bench",
+ "num-bigint",
+ "num-traits",
+ "serde_json",
+]
+
+[[package]]
 name = "errno"
 version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

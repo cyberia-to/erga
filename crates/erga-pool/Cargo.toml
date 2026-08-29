@@ -1,0 +1,16 @@
+[package]
+name = "erga-pool"
+version = "0.1.0"
+edition = "2021"
+description = "Ergo stratum client + miner — connects a pool, mines, submits shares"
+
+[[bin]]
+name = "erga-pool"
+path = "src/main.rs"
+
+[dependencies]
+autolykos   = { path = "../autolykos" }
+blake-bench = { path = "../blake-bench" }
+num-bigint  = "0.4"
+num-traits  = "0.2"
+serde_json  = "1"

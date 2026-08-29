@@ -6,6 +6,7 @@ members = [
     "crates/mine-bench",
     "crates/erga-app",
     "crates/autolykos",
+    "crates/erga-pool",
 ]
 
 [profile.release]

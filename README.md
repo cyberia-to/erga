@@ -125,26 +125,38 @@ CPU threads write it directly, the GPU reads the same pages through a
 wrapped `MTLBuffer`. No staging, no copies, byte-exact agreement
 verified.
 
-## what this is NOT (yet)
+## the road to earning
 
-Stated plainly, because it is the first thing a protocol author will ask:
+The efficiency study answered its question; the work since is turning the
+benchmark into a miner that earns. Status, honestly:
 
-- **Not protocol-bit-exact.** The per-nonce *structure* matches the
-  Autolykos v2 spec (work counts, access pattern, hash placement), but
-  the benchmark uses 32-byte table rows (spec: 31) and a simplified
-  row-fill hash instead of the spec's `Blake2b256(i ‖ h ‖ M)` with the
-  8 KB pad. Same physics, different bytes.
-- **No share has been submitted** to a testnet or pool; there is no
-  stratum client, no node integration, no CLI miner.
-- Numbers are from one machine (MacBook Pro M4 Max). Replications on
-  other M-series parts are welcome — the benches print everything
-  needed.
+| piece | state | verified how |
+|---|---|---|
+| protocol-exact Autolykos v2 (`crates/autolykos`) | **done** | reproduces sigma-rust's own chain test vector (height 614400 → hit `0x0002fcb1…412a`) |
+| table-read mining path | **done** | differential-tested equal to the recompute reference |
+| share search (find a nonce below a target) | **done** | found nonce re-verified via the recompute path |
+| stratum client (`crates/erga-pool`) | **connects & parses live** | parsed a real herominers job: height→N, msg, target |
+| GPU-exact kernel at share difficulty | **next** | — |
+| a share accepted by a pool | **next** | — |
 
-The distance from here to a real miner is deliberate: the research
-question was efficiency physics, and the answer stands on the access
-pattern, which is protocol-exact. Making the bytes exact is mechanical
-(swap the row builder and row width); making it mine is engineering
-(stratum v1, work management, a binary).
+The correctness engine a share stands on is now chain-verified. What's
+left to *earn* is throughput: at pool difficulty a share is ~1 in 4·10⁹
+nonces — a GPU at 60 MH/s finds one in ~70 s, a CPU in ~20 min. So the
+final step is the GPU kernel computing the exact hit (33 table reads +
+the exact seed + a target compare, returning winning nonces) wired to the
+stratum `submit` (already framed in `crates/erga-pool`, per
+[`STRATUM.md`](crates/autolykos/STRATUM.md)). Until a pool accepts a
+share, this does not yet earn — and the app says so.
+
+```
+cargo run --release -p erga-pool -- ergo.herominers.com 1180   # parse a live job
+cargo test -p autolykos                                        # the chain-verified engine
+```
+
+### what the v0.1 app is
+The released `erga.app` is still the **local benchmark** — real hashrate,
+real efficiency, no pool yet. Pool mining ships when the GPU-exact kernel
+above lands.
 
 ## reproduce
 
