@@ -349,7 +349,7 @@ impl eframe::App for App {
                                 ui.label(egui::RichText::new(e).color(Color32::from_rgb(255, 140, 140)).size(10.5));
                             }
 
-                            // ── the pool ledger — earnings de facto ───
+                            // ── the payout — the one bar the player fills ──
                             let pi = self.pool.inner.lock().unwrap();
                             if pi.ok {
                                 ui.add_space(10.0);
@@ -366,35 +366,67 @@ impl eframe::App for App {
                                         );
                                     });
                                 });
-                                ui.add_space(6.0);
+                                ui.add_space(9.0);
+
+                                let earned = pi.balance_erg + pi.pending_erg;
+                                let toward = (earned / pi.threshold_erg) as f32;
+
+                                // the payout bar — segmented in tens, a pulsing
+                                // tip marks where the earning happens
+                                let w = ui.available_width();
+                                let (rect, _) =
+                                    ui.allocate_exact_size(Vec2::new(w, 8.0), Sense::hover());
+                                ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(22, 32, 27));
+                                let f = toward.clamp(0.0, 1.0).max(0.008);
+                                let fw = w * f;
+                                ui.painter().rect_filled(
+                                    egui::Rect::from_min_size(rect.min, Vec2::new(fw, 8.0)),
+                                    4.0,
+                                    MINT.gamma_multiply(0.92),
+                                );
+                                for i in 1..10 {
+                                    let x = rect.min.x + w * i as f32 / 10.0;
+                                    ui.painter().line_segment(
+                                        [
+                                            Pos2::new(x, rect.min.y + 1.5),
+                                            Pos2::new(x, rect.max.y - 1.5),
+                                        ],
+                                        Stroke::new(1.0, BG),
+                                    );
+                                }
+                                let t = ui.input(|i| i.time);
+                                let pulse: f32 =
+                                    if running { 0.55 + 0.45 * (t * 2.2).sin() as f32 } else { 0.35 };
+                                let tip = Pos2::new(rect.min.x + fw, rect.center().y);
+                                ui.painter().circle_filled(tip, 7.0, MINT.gamma_multiply(0.12 * pulse));
+                                ui.painter().circle_filled(tip, 4.5, MINT.gamma_multiply(0.28 * pulse));
+                                ui.painter()
+                                    .circle_filled(tip, 2.4, MINT.gamma_multiply(0.65 + 0.35 * pulse));
+
+                                ui.add_space(7.0);
+                                // the score line: the percentage, and an honest ETA
+                                ui.horizontal(|ui| {
+                                    let mut job = egui::text::LayoutJob::default();
+                                    job.append(
+                                        &format!("{:.1}%", (toward * 100.0).min(100.0)),
+                                        0.0,
+                                        egui::TextFormat {
+                                            font_id: play_bold(20.0),
+                                            color: MINT,
+                                            ..Default::default()
+                                        },
+                                    );
+                                    ui.label(job);
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        caps(ui, &payout_eta(&pi, mhs, earned), 9.5, MUTE);
+                                    });
+                                });
+                                ui.add_space(7.0);
                                 card_row(ui, "maturing", &format!("{:.5} ERG", pi.pending_erg));
                                 card_row(ui, "credited", &format!("{:.5} ERG", pi.balance_erg));
                                 if pi.paid_erg > 0.0 {
                                     card_row(ui, "paid out", &format!("{:.5} ERG", pi.paid_erg));
                                 }
-                                let toward =
-                                    ((pi.balance_erg + pi.pending_erg) / pool::PAYOUT_ERG) as f32;
-                                ui.add_space(7.0);
-                                let w = ui.available_width();
-                                let (rect, _) =
-                                    ui.allocate_exact_size(Vec2::new(w, 4.0), Sense::hover());
-                                ui.painter().rect_filled(rect, 2.0, Color32::from_rgb(26, 36, 30));
-                                let fill = egui::Rect::from_min_size(
-                                    rect.min,
-                                    Vec2::new((w * toward.clamp(0.0, 1.0)).max(3.0), 4.0),
-                                );
-                                ui.painter().rect_filled(fill, 2.0, MINT);
-                                ui.add_space(4.0);
-                                caps(
-                                    ui,
-                                    &format!(
-                                        "{:.1}% of the {} erg payout",
-                                        (toward * 100.0).min(100.0),
-                                        pool::PAYOUT_ERG
-                                    ),
-                                    9.0,
-                                    MUTE,
-                                );
                             }
                         }
                         None => {
@@ -484,6 +516,33 @@ fn meter(ui: &mut egui::Ui, label: &str, frac: f32, val: &str) {
         ui.add_space(2.0);
         ui.label(egui::RichText::new(val).size(10.0).color(CREAM.gamma_multiply(0.85)));
     });
+}
+
+/// The honest countdown to the first payout: remaining ERG at the better of
+/// the pool-measured 24h rate and the live local rate, against live network
+/// difficulty. Tail emission only (3 ERG/block) — fees make it arrive sooner,
+/// never later.
+fn payout_eta(pi: &pool::PoolInfo, local_mhs: f64, earned: f64) -> String {
+    let rate_mhs = pi.hashrate_24h_mhs.max(local_mhs);
+    if pi.difficulty <= 0.0 || rate_mhs <= 0.01 {
+        return format!("payout at {} erg — mine to fill the bar", pi.threshold_erg);
+    }
+    let remaining = (pi.threshold_erg - earned).max(0.0);
+    if remaining <= 0.0 {
+        return "payout on the next hourly run".into();
+    }
+    let net_hs = pi.difficulty / pool::BLOCK_TIME_S;
+    let blocks_per_day = 86_400.0 / pool::BLOCK_TIME_S;
+    let erg_per_day = rate_mhs * 1e6 / net_hs * blocks_per_day * pool::BLOCK_REWARD_ERG;
+    let hours = remaining / erg_per_day * 24.0;
+    let human = if hours < 1.0 {
+        format!("{:.0} min", (hours * 60.0).max(1.0))
+    } else if hours < 48.0 {
+        format!("{:.0} h", hours)
+    } else {
+        format!("{:.1} d", hours / 24.0)
+    };
+    format!("≈ {human} to the {} erg payout", pi.threshold_erg)
 }
 
 /// A key/value row inside a card (no outer margins — the card supplies them).
