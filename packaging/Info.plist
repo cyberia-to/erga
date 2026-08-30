@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>ai.cyber.erga</string>
     <key>CFBundleVersion</key>
-    <string>0.8.2</string>
+    <string>0.8.3</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.8.2</string>
+    <string>0.8.3</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>

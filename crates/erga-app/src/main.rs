@@ -28,7 +28,37 @@ const CREAM: Color32 = Color32::from_rgb(235, 245, 240);
 const MUTE: Color32 = Color32::from_rgb(90, 110, 100);
 
 fn main() -> eframe::Result<()> {
-    // headless mining lives in the CLI: `erga-miner mine <host> <port> <addr>`.
+    // `erga mine [host] [port] [address]` mines headless — same engine, no
+    // window. Everything is optional: with no arguments it uses the pool you
+    // picked in the app and the wallet the app generated for you.
+    //
+    // Headless runs the engine in-process, which the GUI deliberately does
+    // not do: eframe holds an OpenGL context, and pairing that with the
+    // miner's Metal work in one process is what used to abort the app. With
+    // no window there is no second graphics API, so it is safe here.
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.get(1).map(|s| s.as_str()) == Some("mine") {
+        let pool = &pools::POOLS[pools::load_choice()];
+        let host = argv.get(2).cloned().unwrap_or_else(|| pool.host.to_string());
+        let port = argv.get(3).and_then(|s| s.parse().ok()).unwrap_or(pool.port);
+        let address = match argv.get(4) {
+            Some(a) => a.clone(),
+            None => match erga_wallet::Wallet::load_or_create() {
+                Ok(w) => {
+                    println!("mining to your wallet: {}", w.address);
+                    w.address
+                }
+                Err(e) => {
+                    eprintln!("no address given and no wallet available: {e}");
+                    std::process::exit(1);
+                }
+            },
+        };
+        println!("pool: {host}:{port}");
+        erga_miner::cli::mine(host, port, address, argv.iter().any(|a| a == "--machine"));
+        return Ok(());
+    }
+
     // ERGA_WIN=1600x1000 overrides the initial window size (dev/testing).
     let size = std::env::var("ERGA_WIN")
         .ok()
