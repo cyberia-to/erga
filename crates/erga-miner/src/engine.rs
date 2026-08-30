@@ -242,6 +242,13 @@ fn mine_session(
                         return SessionEnd::Closed;
                     }
                 };
+                // Free the previous epoch's table BEFORE allocating the next.
+                // The table is ~N*32 bytes (6.8 GiB at height 1.86M and it
+                // grows 5% every 51200 blocks), so holding both across a
+                // rebuild doubles peak memory and pushes smaller Macs into
+                // swap. Mining on a stale-height table would be invalid
+                // anyway, so there is nothing to lose by dropping it first.
+                *table = None;
                 match ScanMiner::new_gpu_built(gpu, n, j.height, m) {
                     Ok(mn) => *table = Some((j.height, mn)),
                     Err(e) => {

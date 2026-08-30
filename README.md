@@ -1,90 +1,194 @@
 # erga
 
-Autolykos v2 (ERGO) mining research on Apple Silicon — zero-copy, and
-honest about what it found.
+**One button. Your Mac mines ERGO.**
 
-**erga** (ἔργα, "the works") asks one question: does Apple's unified
-memory make M-series chips competitive at ERGO's memory-hard proof of
-work? The answer surprised us twice.
+![erga](docs/erga.png)
 
-Status: **research artifact, experimental.** The kernels are real and
-measured; a pool-ready miner is not built yet (see
-[what this is not](#what-this-is-not-yet)).
+Open the app, press the crystal, and an Apple Silicon Mac mines Autolykos v2
+to a pool under a wallet it generates for you. Live hashrate, accepted
+shares, and a progress bar to your first payout — with an honest countdown
+computed from live network difficulty.
 
-## the app — one button
+Status: **working end to end.** It connects, mines, submits, gets shares
+accepted, and tracks what the pool owes you. Verified against the chain,
+not just against itself.
 
-`erga.app` is a menu-free desktop miner: open it, press the crystal,
-watch the hashrate climb. It runs the same honeycrisp zero-copy kernel
-the study measured, shows live MH/s, the device, the pinned table size,
-and — read-only, via the public explorer — the confirmed balance of any
-address you paste.
+## it works — and here is how that was checked
 
-Download the `.dmg` from [Releases](https://github.com/cyberia-to/erga/releases).
-It is not yet notarized, so the first launch needs one line to clear the
+| piece | state | verified how |
+|---|---|---|
+| Autolykos v2 reference (`crates/autolykos`) | done | reproduces sigma-rust's own chain vector (height 614400 → hit `0x0002fcb1…412a`) |
+| GPU kernel | done | differential test: GPU hit is byte-exact to the CPU reference over 512 nonces |
+| stratum client (`crates/erga-pool`) | done | live shares **accepted** by herominers and by 2miners |
+| share re-verification | done | every candidate is re-hashed on the CPU reference before it is sent — nothing invalid ever leaves the machine |
+| wallet (`crates/erga-wallet`) | done | ergo-lib (the reference wallet): BIP39 → `m/44'/429'/0'/0/0` → P2PK |
+| balance + pool ledger | done | public explorer + the pool's per-address API |
+| tests | 12 passing | `cargo test --workspace` |
+
+## install
+
+Download the `.dmg` from [Releases](https://github.com/cyberia-to/erga/releases),
+drag `erga.app` to Applications. It is not notarized yet, so clear the
 quarantine flag Gatekeeper sets on downloaded apps:
 
 ```
 xattr -dr com.apple.quarantine /Applications/erga.app
 ```
 
-then open it normally. v0.1 is a **local mining benchmark** — it proves
-the efficiency on *your* Mac. Pool connection and share submission are
-the next build (see [what this is not](#what-this-is-not-yet)).
+Then open it and press the crystal. A wallet is generated on first launch —
+back up the 15 words from the **back up** button; that seed *is* your wallet.
 
-Build it yourself:
+Headless, no GUI:
+
+```
+erga-miner mine ergo.herominers.com 1180 <your-address>
+```
+
+## which Mac, and what to expect
+
+### memory is the real gate
+
+Autolykos v2 rebuilds a table of `N` 32-byte elements **every block**, and
+`N` grows with chain height. Right now (height ~1.86M) that table is
+**6.8 GiB**, and the process sits at ~7.1 GB steady / 8.5 GB peak — measured
+with `footprint`.
+
+| unified memory | verdict |
+|---|---|
+| 8 GB | **will not work** — the table alone is larger than the machine |
+| 16 GB | works today, with little room to spare |
+| 24–36 GB | comfortable |
+| 48 GB+ | room for years of growth |
+
+`N` rises 5% every 51,200 blocks — about every 71 days, so roughly **+28% a
+year**. A 16 GB Mac that mines today will be squeezed within a year or two.
+This is a property of the protocol, not of erga.
+
+### hashrate
+
+Autolykos v2 is memory-bandwidth-bound, so the rate tracks memory bandwidth
+far more closely than GPU core count. Only the first row is measured on
+hardware we own; the rest is that ratio applied, and should be read as an
+estimate.
+
+| chip | memory bandwidth | MH/s |
+|---|---|---|
+| **M4 Max** (40-core GPU) | 546 GB/s | **52–67 measured** |
+| M1 / M2 Ultra | 800 GB/s | ~75–95 est. (two dies — may scale sub-linearly) |
+| M1 / M2 / M3 Max | 400 GB/s | ~40–50 est. |
+| M4 Pro | 273 GB/s | ~26–34 est. |
+| M1 / M2 Pro | 200 GB/s | ~19–25 est. |
+| M3 Pro | 150 GB/s | ~14–18 est. |
+| M4 | 120 GB/s | ~11–15 est. |
+| M1 / M2 / M3 base | 68–100 GB/s | ~7–12 est. |
+
+Measured a number on your Mac? Open an issue — the table gets better.
+
+### what it earns
+
+Honestly: not much, and the app says so. At ~60 MH/s against the current
+network (~600 GH/s, 3 ERG per block) that is roughly **6–8 ERG a month**,
+which at today's price is a couple of dollars. The app shows this live —
+`a month at this pace`, in ERG and in dollars — so you never have to guess.
+
+The interesting number is not the dollars, it is the watts (see
+[the research](#the-research-behind-it) below).
+
+## how it works
+
+```
+erga.app  (eframe/egui — draws only)
+   │  spawns, reads STAT lines from stdout
+   ▼
+erga-miner  (its own process — all GPU work lives here)
+   │
+   ├── autolykos   protocol-exact reference, chain-verified
+   ├── erga-pool   stratum: subscribe · authorize · notify · submit
+   └── honeycrisp  zero-copy Metal: one IOSurface-pinned table, no staging
+```
+
+The miner runs as a **separate process** on purpose. The GUI holds an OpenGL
+context (eframe/glow) while the miner drives Metal through honeycrisp; the
+two graphics APIs in one process proved fragile enough to abort the app.
+Split, the window only draws, and if the miner ever dies the UI survives and
+says so.
+
+Other things it does because they matter more than they look:
+
+- **keeps the Mac awake while mining** (`caffeinate` tied to the miner's pid) —
+  a machine asleep at night halves your month
+- **re-verifies every share on the CPU** before submitting
+- **auto-reconnects** — a dropped pool or a network blip retries instead of
+  ending the session
+- **pool chooser** — herominers (default: 0.5 ERG payout floor, the lowest
+  verified, plus an in-app ledger) with 13 regional endpoints, and 2miners
+  (admitted only after a live accepted share through this client)
+- **stores the seed in a 0600 file**, not the Keychain — Keychain prompts on
+  every rebuild because ad-hoc signatures change
+
+## the 5% development share
+
+One share in every 20 is mined for the project. It is implemented as a
+*separate authorized session*: the pool credits whoever authorized the
+connection, so shares cannot be relabeled — erga alternates sessions, 19 for
+you and 1 for development. The app shows the running count under
+**to development**, so the number is never hidden.
+
+You own the software and the choice. No rebuild needed:
+
+```
+ERGA_DONATION=off                turn it off
+ERGA_DONATION=<your address>     send that 5% wherever you like
+ERGA_DONATION_EVERY=50           1 share in 50 (2%) instead
+```
+
+Or edit `DONATION_ADDRESS` / `DONATION_EVERY_NTH` at the top of
+[`crates/erga-miner/src/engine.rs`](crates/erga-miner/src/engine.rs).
+
+## build from source
+
+Apple Silicon, macOS 14+, Rust stable, and a sibling checkout of honeycrisp:
 
 ```
 git clone https://github.com/cyberia-to/honeycrisp ../honeycrisp
-nu packaging/bundle.nu        # → packaging/dist/erga.app + erga-<ver>.dmg
-# or just run it:
-cargo run --release -p erga-app
-cargo run --release -p erga-app -- --smoke   # headless: prints live MH/s
+cargo build --release
+cargo test --workspace          # 12 tests
+nu packaging/bundle.nu          # → packaging/dist/erga.app + the .dmg
 ```
 
-## the result
+The app icon is code too — `swift packaging/icon.swift` redraws it.
 
-Measured on a MacBook Pro M4 Max (40-core GPU), `powermetrics` sampling
-CPU+GPU power concurrently with mining:
+## the research behind it
 
-| regime | hashrate | chip power (measured) | MH/W |
+erga began as a measurement, not a product: **does Apple's unified memory
+make M-series chips competitive at a memory-hard proof of work?** The answer
+flipped twice.
+
+The integrated kernel peaked at 65–72 MH/s — 83% of the memory-bound ceiling
+(~78 MH/s at the ~82 GB/s the chip actually delivers into 32-byte random
+reads). At an *estimated* 50 W that was 1.31 MH/W, below an RTX 3090, and it
+was written up as a negative result.
+
+Then power was measured instead of estimated:
+
+| regime | hashrate | chip power | MH/W |
 |---|---|---|---|
-| burst (5–10 s, cold chip) | 65–72 MH/s GPU-only, 84–87 hybrid | est. 30–70 W | 1.2–2.4 |
-| **sustained (60 s+, thermal equilibrium)** | **32 MH/s** GPU-only | **8.28 W** | **3.91** |
+| **M4 Max sustained** (60 s+, thermal equilibrium) | **32 MH/s** | **8.28 W** measured | **3.91** |
 | RTX 3090, best documented OC | 281 MH/s | 171 W | 1.64 |
 | RTX 4090, best documented OC | 292 MH/s | 200 W | 1.46 |
 | MacMetal Miner on M4 Max (proprietary baseline) | 60.3 MH/s | ~45 W | 1.34 |
 
-**Sustained, an M4 Max delivers 2.4× the energy efficiency of an
-RTX 3090** on this workload — 6.19 W mean GPU + 2.09 W mean CPU while
-holding 32 MH/s. The absolute rate per machine is ~9× lower than a
-3090; the win is per watt, not per box.
-
-The measurement protocol: 90 s cooldown, then 60 s of continuous V1
-mining with `powermetrics --samplers cpu_power,gpu_power` running
-alongside. Laptop chassis — a Mac Studio should sustain more (and
-possibly score slightly lower MH/W doing it).
-
-## the story, honestly
-
-1. **Hypothesis**: unified memory + no PCIe + no VRAM ceiling should
-   make Apple Silicon the efficiency leader for a bandwidth-bound PoW.
-2. **First verdict — disconfirmed.** The integrated kernel peaked at
-   65–72 MH/s, 83% of the memory-bound ceiling (~78 MH/s at the ~82 GB/s
-   the chip actually delivers into 32-byte random reads from a 2 GiB
-   table). At an *estimated* 50 W that computed to 1.31 MH/W — below
-   the 3090. We wrote it up as a negative result.
-3. **Then we measured power instead of estimating it.** At thermal
-   equilibrium the SoC downclocks aggressively while the workload stays
-   memory-stalled, holding half the hashrate at one-sixth the estimated
-   power. 32 MH/s at 8.28 W measured — the verdict flipped to 3.91 MH/W.
+**Sustained, an M4 Max delivers 2.4× the energy efficiency of an RTX 3090**
+on this workload — 6.19 W mean GPU + 2.09 W mean CPU while holding 32 MH/s.
+Per machine it is ~9× slower than a 3090; the win is per watt, not per box.
 
 Why Apple wins sustained: the workload stalls shader cores on DRAM most
 cycles, so dynamic ALU power is mostly waste. Apple's power management
-collapses clocks under that profile while preserving most throughput;
-a discrete GPU cannot downclock that far independent of its memory
-subsystem, so a 3090 burns near TDP even when bandwidth is the wall.
+collapses clocks under that profile while keeping most of the throughput; a
+discrete GPU cannot downclock that far independently of its memory subsystem,
+so a 3090 burns near TDP even when bandwidth is the wall.
 
-## the wall (the finding that generalizes)
+### the wall
 
 Eight kernel variants and two diagnostics isolated the bottleneck:
 
@@ -98,93 +202,38 @@ V6  DIAG: Blake2b removed            ~57         SLOWER than V1
 V7  DIAG: R-table reads removed      ~669        compute is 10× spare
 ```
 
-V7 proves compute is plentiful. V6 — *slower without the hash* — proves
-the wall is **memory-subsystem contention on thousands of simultaneous
-random 32-byte reads**, not aggregate bandwidth and not compute: the
-Blake2b work at the top of V1 naturally staggers thread phases and
-reduces contention at the memory controller. That rules out every
-kernel-level optimization path; the limit is a hardware property of the
-unified memory subsystem under this access pattern.
+V7 proves compute is plentiful. V6 — *slower without the hash* — proves the
+wall is **memory-subsystem contention on thousands of simultaneous random
+32-byte reads**, not aggregate bandwidth and not compute: the Blake2b work at
+the top of V1 staggers thread phases and reduces contention at the memory
+controller. Every kernel that tried to outsmart the Metal compiler lost to
+the one that trusted it.
 
-Corollary the compiler taught us twice: kernels that trusted the Metal
-compiler beat every kernel that tried to outsmart it.
-
-## what is in the repo
-
-Three crates, each a standalone benchmark with its own binary:
-
-| crate | what it measures | headline number (M4 Max) |
-|---|---|---|
-| `crates/blake-bench` | Blake2b-256 in MSL, 4 variants, vs a CPU reference implementation | **1.6 GH/s** sustained (fully-unrolled V2 kernel) — 8× more than mining ever needs |
-| `crates/rtable-bench` | 2 GiB R-table: parallel CPU build into IOSurface-pinned memory, GPU random-read probe, byte-exact CPU↔GPU checksum | build 0.75 s (16 threads); **~82 GB/s** useful random-read bandwidth; checksums match |
-| `crates/mine-bench` | the integrated per-nonce loop: seed hash → 32 indexes → 32 random reads → 256-bit sum → final Blake2b; 8 kernel variants + diagnostics | 71.8 MH/s peak, **32 MH/s @ 8.28 W sustained** |
-
-Everything runs zero-copy on the [honeycrisp](https://github.com/cyberia-to/honeycrisp)
-driver stack: one `unimem::Block` (IOSurface-pinned) holds the table,
-CPU threads write it directly, the GPU reads the same pages through a
-wrapped `MTLBuffer`. No staging, no copies, byte-exact agreement
-verified.
-
-## the road to earning
-
-The efficiency study answered its question; the work since is turning the
-benchmark into a miner that earns. Status, honestly:
-
-| piece | state | verified how |
-|---|---|---|
-| protocol-exact Autolykos v2 (`crates/autolykos`) | **done** | reproduces sigma-rust's own chain test vector (height 614400 → hit `0x0002fcb1…412a`) |
-| table-read mining path | **done** | differential-tested equal to the recompute reference |
-| share search (find a nonce below a target) | **done** | found nonce re-verified via the recompute path |
-| stratum client (`crates/erga-pool`) | **connects & parses live** | parsed a real herominers job: height→N, msg, target |
-| GPU-exact kernel at share difficulty | **next** | — |
-| a share accepted by a pool | **next** | — |
-
-The correctness engine a share stands on is now chain-verified. What's
-left to *earn* is throughput: at pool difficulty a share is ~1 in 4·10⁹
-nonces — a GPU at 60 MH/s finds one in ~70 s, a CPU in ~20 min. So the
-final step is the GPU kernel computing the exact hit (33 table reads +
-the exact seed + a target compare, returning winning nonces) wired to the
-stratum `submit` (already framed in `crates/erga-pool`, per
-[`STRATUM.md`](crates/autolykos/STRATUM.md)). Until a pool accepts a
-share, this does not yet earn — and the app says so.
+The benches are still in the repo and still run:
 
 ```
-cargo run --release -p erga-pool -- ergo.herominers.com 1180   # parse a live job
-cargo test -p autolykos                                        # the chain-verified engine
-```
-
-### what the v0.1 app is
-The released `erga.app` is still the **local benchmark** — real hashrate,
-real efficiency, no pool yet. Pool mining ships when the GPU-exact kernel
-above lands.
-
-## reproduce
-
-Requirements: Apple Silicon Mac, macOS 14+, Rust stable, and a sibling
-checkout of honeycrisp (path dependencies):
-
-```
-git clone https://github.com/cyberia-to/honeycrisp ../honeycrisp
-cargo build --release
-```
-
-Run the benches:
-
-```
-cargo run --release -p blake-bench     # Blake2b256 MSL variants
+cargo run --release -p blake-bench     # Blake2b256 in MSL — 1.6 GH/s
 cargo run --release -p rtable-bench    # table build + random-read bandwidth
-cargo run --release -p mine-bench      # integrated mining kernels V1..V9
+cargo run --release -p mine-bench      # the integrated kernels, V1..V9
 ```
 
-For the sustained efficiency number, replicate the power protocol: let
-the chip cool ~90 s, start `sudo powermetrics --samplers
-cpu_power,gpu_power -i 1000` in a second terminal, run mine-bench V1
-for 60 s+, average the power samples over the mining window.
+## what it is not
+
+- **not a wallet you spend from.** Balance and seed backup, yes; sending, no.
+  Import the seed into any Ergo wallet to move coins — keeping the miner and
+  the spending keys apart is the safer default.
+- **not notarized.** Hence the `xattr` line above.
+- **not a solo miner.** It mines to a pool. (herominers supports solo with a
+  `solo:` prefix; erga does not expose it yet.)
+- **not for Intel Macs.** Apple Silicon only.
 
 ## lineage
 
-erga is one of the honeycrisp miner studies, next to mona (RandomX),
-zoya (ProgPoWZ), trisha (Tip5) and xena (XEL) — each asks whether a
-specific PoW's physics favors Apple Silicon, and each publishes the
-answer either way. The full lab notebook for this one, including the
-failed variants and the revised verdicts, is [plan.md](plan.md).
+erga is one of the honeycrisp miner studies, beside mona (RandomX), zoya
+(ProgPoWZ), trisha (Tip5) and xena (XEL) — each asks whether a specific PoW's
+physics favors Apple Silicon, and each publishes the answer either way. The
+full lab notebook, including the failed variants and the revised verdicts, is
+[plan.md](plan.md).
+
+Built on [honeycrisp](https://github.com/cyberia-to/honeycrisp) — zero-copy
+Metal, NEON/AMX/SME, ANE — part of [soft3](https://github.com/cyberia-to/soft3).

@@ -786,16 +786,6 @@ fn card_row(ui: &mut egui::Ui, key: &str, val: &str) {
     });
 }
 
-fn stat_row(ui: &mut egui::Ui, key: &str, val: &str) {
-    ui.horizontal(|ui| {
-        ui.add_space(24.0);
-        ui.label(egui::RichText::new(key).color(MINT).size(11.0).strong());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(24.0);
-            ui.label(egui::RichText::new(val).color(CREAM.gamma_multiply(0.85)).size(12.0));
-        });
-    });
-}
 
 /// The heptagon sigil — soft3's crystal, here as the one button. Fills
 /// mint when mining, outline when idle; the inner facet counter-rotates.

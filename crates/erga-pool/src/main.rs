@@ -8,7 +8,7 @@
 //! the GPU-exact kernel (finds a share in seconds; CPU would take ~20 min),
 //! which is the next build — this crate is the connection + protocol half.
 
-use erga_pool::stratum::{self, PoolEvent, Stratum};
+use erga_pool::stratum::{PoolEvent, Stratum};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
