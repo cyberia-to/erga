@@ -132,6 +132,15 @@ Other things it does because they matter more than they look:
   (admitted only after a live accepted share through this client)
 - **stores the seed in a 0600 file**, not the Keychain — Keychain prompts on
   every rebuild because ad-hoc signatures change
+- **remembers across restarts** — all-time shares and hashes survive quitting,
+  and are checkpointed every minute so a crash costs at most that
+- **shows an effective hashrate** next to the live one: the same hashes
+  averaged over the whole session, so the seconds spent rebuilding the table
+  each block are counted honestly
+- **solo, if you want the lottery** — the `solo` switch mines to herominers'
+  solo endpoint: whole blocks or nothing, no shared payout
+- **keeps a log** at `~/Library/Logs/erga/erga.log`, one click away under
+  `logs`, so a problem can be reported with evidence
 
 ## the 5% development share
 

@@ -12,6 +12,7 @@ mod balance;
 mod miner;
 mod pool;
 mod pools;
+mod store;
 mod stats;
 
 use eframe::egui;
@@ -184,6 +185,10 @@ struct App {
     spin: f32,
     last_balance: std::time::Instant,
     sys: stats::Sys,
+    store: store::Store,
+    /// When the current mining session began, for the effective rate.
+    session_start: Option<std::time::Instant>,
+    last_save: std::time::Instant,
 }
 
 impl App {
@@ -205,7 +210,49 @@ impl App {
             spin: 0.0,
             last_balance: std::time::Instant::now(),
             sys: stats::Sys::new(),
+            store: store::Store::load(),
+            session_start: None,
+            last_save: std::time::Instant::now(),
         }
+    }
+
+    /// Begin mining, applying the solo prefix if it is on. herominers routes
+    /// a `solo:` address to solo mining: you keep whole blocks and get
+    /// nothing in between, so the pool's shared payout no longer applies.
+    fn begin(&mut self) {
+        let Some(addr) = self.address().map(|a| a.to_string()) else {
+            self.miner.p.set_status("wallet unavailable");
+            return;
+        };
+        let pool = &pools::POOLS[self.pool_idx];
+        let addr = if self.store.solo && pools::has_ledger(self.pool_idx) {
+            format!("solo:{addr}")
+        } else {
+            addr
+        };
+        store::log(&format!("start pool={}:{} solo={}", pool.host, pool.port, self.store.solo));
+        self.session_start = Some(std::time::Instant::now());
+        self.miner.start(addr, pool.host, pool.port);
+    }
+
+    /// Stop mining and fold this session's counters into the all-time totals.
+    fn end(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let p = &self.miner.p;
+        let (a, r, d, h) = (
+            p.accepted.load(Relaxed),
+            p.rejected.load(Relaxed),
+            p.donated.load(Relaxed),
+            p.hashed.load(Relaxed),
+        );
+        self.miner.stop();
+        self.store.accepted += a;
+        self.store.rejected += r;
+        self.store.donated += d;
+        self.store.hashed += h;
+        self.store.save();
+        self.session_start = None;
+        store::log(&format!("stop accepted={a} rejected={r} donated={d} hashed={h}"));
     }
 
     fn address(&self) -> Option<&str> {
@@ -225,6 +272,33 @@ impl eframe::App for App {
         }
         // keep ticking so hashrate, dashboard and balance stay live
         ctx.request_repaint_after(std::time::Duration::from_millis(if running { 250 } else { 1000 }));
+
+        // Effective rate: hashes over the whole session, so the seconds spent
+        // rebuilding the table each block are counted honestly.
+        let eff_mhs = self.session_start.and_then(|t| {
+            let secs = t.elapsed().as_secs_f64();
+            let h = self.miner.p.hashed.load(std::sync::atomic::Ordering::Relaxed);
+            (secs > 5.0 && h > 0).then(|| h as f64 / secs / 1e6)
+        });
+        let all_time = {
+            use std::sync::atomic::Ordering::Relaxed;
+            (
+                self.store.accepted + self.miner.p.accepted.load(Relaxed),
+                self.store.hashed + self.miner.p.hashed.load(Relaxed),
+            )
+        };
+        // Checkpoint the totals every minute so a crash costs at most that.
+        if running && self.last_save.elapsed().as_secs() >= 60 {
+            use std::sync::atomic::Ordering::Relaxed;
+            let p = &self.miner.p;
+            self.store.save_with(
+                p.accepted.load(Relaxed),
+                p.rejected.load(Relaxed),
+                p.donated.load(Relaxed),
+                p.hashed.load(Relaxed),
+            );
+            self.last_save = std::time::Instant::now();
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             let avail_w = ui.available_width();
@@ -262,15 +336,26 @@ impl eframe::App for App {
                                 ui.selectable_value(&mut self.pool_idx, i, pl.label);
                             }
                         });
+                    // Solo is a different game on the same pool: you win a
+                    // whole block or nothing, so it only makes sense where we
+                    // know the pool speaks it.
+                    if pools::has_ledger(self.pool_idx) {
+                        let was = self.store.solo;
+                        ui.checkbox(&mut self.store.solo, egui::RichText::new("solo").size(10.5));
+                        if self.store.solo != was {
+                            self.store.save();
+                            if running {
+                                self.end();
+                                self.begin();
+                            }
+                        }
+                    }
                     if self.pool_idx != prev {
                         pools::save_choice(self.pool_idx);
                         if running {
-                            self.miner.stop();
-                            if let Ok(w) = &self.wallet {
-                                let addr = w.address.clone();
-                                let pl = &pools::POOLS[self.pool_idx];
-                                self.miner.start(addr, pl.host, pl.port);
-                            }
+                            // hop pools live: land on the new door mid-flight
+                            self.end();
+                            self.begin();
                         }
                     }
                 });
@@ -311,7 +396,7 @@ impl eframe::App for App {
                 ui.horizontal(|ui| {
                     ui.add_space(side);
                     panel_frame(ui, lw, 0.0, |ui| {
-                        machine_panel(ui, &p, cpu, mem, net_kbs, mhs, running);
+                        machine_panel(ui, &p, cpu, mem, net_kbs, mhs, running, eff_mhs, all_time);
                     });
                     ui.add_space(gap);
                     // the crystal and the hero rate under it
@@ -385,7 +470,7 @@ impl eframe::App for App {
                             ui.vertical(|ui| {
                                 ui.set_width(col_w);
                                 panel_frame(ui, col_w, 0.0, |ui| {
-                                    machine_panel(ui, &p, cpu, mem, net_kbs, mhs, running);
+                                    machine_panel(ui, &p, cpu, mem, net_kbs, mhs, running, eff_mhs, all_time);
                                 });
                                 ui.add_space(12.0);
                                 panel_frame(ui, col_w, 0.0, |ui| {
@@ -411,12 +496,62 @@ impl eframe::App for App {
             }
             if start_stop {
                 if running {
-                    self.miner.stop();
-                } else if let Some(addr) = addr_opt {
-                    let pl = &pools::POOLS[self.pool_idx];
-                    self.miner.start(addr, pl.host, pl.port);
+                    self.end();
                 } else {
-                    self.miner.p.set_status("wallet unavailable");
+                    self.begin();
+                }
+            }
+
+            // ── first run: say the honest things before anything else ──
+            if !self.store.seen_intro {
+                let mut go = false;
+                egui::Window::new("welcome to erga")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        ui.set_max_width(430.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "erga mines ERGO on your Mac's GPU and pays into a wallet it \
+                                 just generated for you. Four things are worth knowing before \
+                                 you press the crystal.",
+                            )
+                            .color(CREAM)
+                            .size(12.5),
+                        );
+                        ui.add_space(12.0);
+                        for (head, body) in [
+                            ("it earns little",
+                             "a few ERG a month — a couple of dollars. The app shows the live \
+                              projection in ERG and in dollars, so you never have to guess."),
+                            ("it needs memory",
+                             "the mining table is about 7 GB and is rebuilt every block. 8 GB \
+                              Macs cannot run it; 16 GB works with little room to spare."),
+                            ("5% funds development",
+                             "one share in twenty is mined for the project, on its own pool \
+                              session. The count is always on screen, and you can change or \
+                              switch it off — see the README."),
+                            ("back up your seed",
+                             "the 15 words behind 'back up' are the wallet. Nobody can recover \
+                              them for you."),
+                        ] {
+                            caps(ui, head, 10.0, MINT);
+                            ui.add_space(2.0);
+                            ui.label(egui::RichText::new(body).color(MUTE).size(11.5));
+                            ui.add_space(10.0);
+                        }
+                        ui.separator();
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("let's mine").clicked() {
+                                go = true;
+                            }
+                        });
+                    });
+                if go {
+                    self.store.seen_intro = true;
+                    self.store.save();
                 }
             }
 
@@ -573,6 +708,11 @@ fn machine_panel(
     net_kbs: f64,
     mhs: f64,
     running: bool,
+    // eff_mhs: hashes/sec over the whole session, table rebuilds included —
+    // the rate the pool will agree with. all_time: accepted shares and
+    // hashes across every run, ever.
+    eff_mhs: Option<f64>,
+    all_time: (u64, u64),
 ) {
     use std::sync::atomic::Ordering as O;
     caps(ui, "the machine", 10.5, MUTE);
@@ -613,6 +753,20 @@ fn machine_panel(
         card_row(ui, "block", &(if h > 0 { h.to_string() } else { "—".into() }));
     }
     card_row(ui, "hashed", &human(p.hashed.load(O::Relaxed)));
+    if let Some(e) = eff_mhs {
+        // The big number is the rate while mining; this one counts the
+        // seconds spent rebuilding the table each block too.
+        card_row(ui, "effective", &format!("{e:.1} MH/s"));
+    }
+    if all_time.0 > 0 || all_time.1 > 0 {
+        ui.add_space(10.0);
+        ui.separator();
+        ui.add_space(8.0);
+        caps(ui, "all time", 9.5, MUTE.gamma_multiply(0.85));
+        ui.add_space(4.0);
+        card_row(ui, "shares", &all_time.0.to_string());
+        card_row(ui, "hashed", &human(all_time.1));
+    }
     if !running {
         ui.add_space(6.0);
         caps(ui, "press the crystal to begin", 9.0, MUTE.gamma_multiply(0.8));
@@ -716,6 +870,9 @@ fn wallet_strip(ui: &mut egui::Ui, addr: &str, w: f32, want_backup: &mut bool) {
         }
         if ui.button(egui::RichText::new("back up").size(10.0)).clicked() {
             *want_backup = true;
+        }
+        if ui.button(egui::RichText::new("logs").size(10.0)).clicked() {
+            store::reveal_log();
         }
     });
 }
