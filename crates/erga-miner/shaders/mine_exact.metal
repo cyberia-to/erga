@@ -108,25 +108,27 @@ struct BuildParams { uint n; uint height; };
 // h_be4 || M)[1..32] and writes it as 4 little-endian limbs.
 kernel void build_kernel(
     device ulong*         R   [[buffer(0)]],
-    constant uchar*       M   [[buffer(1)]], // 8192 bytes
-    constant BuildParams& bp  [[buffer(2)]],
+    constant BuildParams& bp  [[buffer(1)]],
     uint gid [[thread_position_in_grid]])
 {
     uint idx = gid; if (idx >= bp.n) return;
-    uchar ib[4] = { (uchar)(idx>>24),(uchar)(idx>>16),(uchar)(idx>>8),(uchar)idx };
-    uchar hb[4] = { (uchar)(bp.height>>24),(uchar)(bp.height>>16),(uchar)(bp.height>>8),(uchar)bp.height };
+    // The message is idx(4) || height(4) || M(8192), where M is the constant
+    // pad: 1024 big-endian u64s counting 0..1023. Every 8-byte word of that
+    // pad is therefore *computable* — the byte-swap of its index — so this
+    // kernel never reads M at all. The previous version assembled each word
+    // byte by byte out of `constant` memory, which cost ~8 KB of loads per
+    // element: 1.86 TB across a full table, and the memory system, not
+    // Blake2b, was the wall.
     ulong hs[8] = { IV0^0x01010020UL, IV1, IV2, IV3, IV4, IV5, IV6, IV7 };
     const uint T = 8200u; // 4 + 4 + 8192
+    const ulong pre = swap64(((ulong)idx << 32) | (ulong)bp.height);
     for (uint b=0; b<65u; b++) {
         ulong mm[16];
         for (uint w=0; w<16; w++) {
-            ulong x=0;
-            for (uint by=0; by<8; by++) {
-                uint k = b*128u + w*8u + by;
-                uchar val = (k<4u) ? ib[k] : (k<8u) ? hb[k-4u] : (k<T ? M[k-8u] : (uchar)0);
-                x |= ((ulong)val) << (by*8);
-            }
-            mm[w]=x;
+            uint k0 = b*128u + w*8u;                 // byte offset of this word
+            mm[w] = (k0 == 0u)     ? pre             // idx || height
+                  : (k0 + 8u <= T) ? swap64((ulong)(b*16u + w - 1u))
+                                   : 0UL;           // past the message: zero pad
         }
         ulong t = ((b+1u)*128u < T) ? (ulong)((b+1u)*128u) : (ulong)T;
         blake2b_compress(hs, mm, t, b==64u);
@@ -146,8 +148,6 @@ kernel void build_kernel(
     }
 }
 
-// The full hit: returns the 4 digest words (little-endian limbs). msg is the
-// 32-byte header prehash; nonce is the u64 counter (used big-endian).
 static inline void hit_words(
     device const ulong* R, constant uchar* msg, ulong n, ulong nonce, thread ulong* d)
 {

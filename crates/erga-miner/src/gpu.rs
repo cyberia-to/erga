@@ -102,7 +102,6 @@ impl ScanMiner {
             .map_err(|e| format!("{e:?}"))?;
 
         let r_buf = gpu.buffer(n as usize * 32).map_err(|e| format!("R buffer {e:?}"))?;
-        let m_buf = gpu.buffer_with_data(m).map_err(|e| format!("M {e:?}"))?;
         #[repr(C)]
         struct BuildP { n: u32, height: u32 }
         let bp: [u8; 8] = unsafe { std::mem::transmute(BuildP { n, height }) };
@@ -111,9 +110,9 @@ impl ScanMiner {
         unsafe {
             dispatch.dispatch_with_bytes(
                 &build,
-                &[(&r_buf, 0, 0), (&m_buf, 0, 1)],
+                &[(&r_buf, 0, 0)],
                 &bp,
-                2,
+                1,
                 (grid, 1, 1),
                 (tg, 1, 1),
             );
