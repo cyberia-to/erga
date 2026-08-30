@@ -135,7 +135,7 @@ impl Miner {
 
 /// Parse one line of the child's `--machine` output into the shared progress.
 ///   `DEVICE <name…>`
-///   `STAT <rate_khs> <height> <accepted> <rejected> <hashed> <status…>`
+///   `STAT <rate_khs> <height> <accepted> <rejected> <hashed> <donated> <status…>`
 fn parse_line(p: &Arc<Progress>, line: &str) {
     let mut it = line.split_whitespace();
     match it.next() {
@@ -151,14 +151,16 @@ fn parse_line(p: &Arc<Progress>, line: &str) {
             let acc = it.next().and_then(|s| s.parse::<u64>().ok());
             let rej = it.next().and_then(|s| s.parse::<u64>().ok());
             let hashed = it.next().and_then(|s| s.parse::<u64>().ok());
-            if let (Some(rate), Some(height), Some(acc), Some(rej), Some(hashed)) =
-                (rate, height, acc, rej, hashed)
+            let donated = it.next().and_then(|s| s.parse::<u64>().ok());
+            if let (Some(rate), Some(height), Some(acc), Some(rej), Some(hashed), Some(donated)) =
+                (rate, height, acc, rej, hashed, donated)
             {
                 p.rate_khs.store(rate, Ordering::Relaxed);
                 p.height.store(height, Ordering::Relaxed);
                 p.accepted.store(acc, Ordering::Relaxed);
                 p.rejected.store(rej, Ordering::Relaxed);
                 p.hashed.store(hashed, Ordering::Relaxed);
+                p.donated.store(donated, Ordering::Relaxed);
                 // the rest of the line is the status text
                 let status: String = it.collect::<Vec<_>>().join(" ");
                 if !status.is_empty() {

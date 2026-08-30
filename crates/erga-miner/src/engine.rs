@@ -10,6 +10,44 @@ use crate::gpu::ScanMiner;
 use aruminium::Gpu;
 use erga_pool::stratum::{Job, PoolEvent, Stratum};
 
+// ─── development donation ────────────────────────────────────────────────
+//
+// One share in every `DONATION_EVERY_NTH` (20 → 5%) is submitted under the
+// address below instead of yours. The pool credits whoever the submitted
+// share names, so this is a real 5% of your mining, and nothing else about
+// your mining changes — no extra connection, no hidden traffic, no idle
+// time. It funds erga's development.
+//
+// You own this software and this choice. To change it, edit these two
+// constants and rebuild — or set the environment variables at run time:
+//
+//   ERGA_DONATION=off              turn it off entirely
+//   ERGA_DONATION=<your address>   send that 5% wherever you like
+//   ERGA_DONATION_EVERY=50         donate 1 share in 50 (2%) instead
+//
+// The app always shows how many shares went to development, so the number
+// is never hidden from you.
+pub const DONATION_ADDRESS: &str = "9f8DEbXprAnTS4yhPjp9BEgqnzThVzBPggw5184RureWaRcoGYM";
+pub const DONATION_EVERY_NTH: u64 = 20; // 20 → 5%; 0 disables the donation
+
+/// The donation setting for this run, after the environment has its say.
+/// Returns None when donation is off.
+fn donation() -> Option<(String, u64)> {
+    let addr = match std::env::var("ERGA_DONATION") {
+        Ok(v) if v.eq_ignore_ascii_case("off") || v.is_empty() => return None,
+        Ok(v) => v,
+        Err(_) => DONATION_ADDRESS.to_string(),
+    };
+    let every = std::env::var("ERGA_DONATION_EVERY")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DONATION_EVERY_NTH);
+    if every == 0 || addr.is_empty() {
+        return None;
+    }
+    Some((addr, every))
+}
+
 pub struct Progress {
     pub running: AtomicBool,
     pub stop: AtomicBool,
@@ -18,6 +56,8 @@ pub struct Progress {
     pub rejected: AtomicU64,
     pub height: AtomicU64,
     pub hashed: AtomicU64,
+    pub submitted: AtomicU64, // shares sent this run (drives the donation cadence)
+    pub donated: AtomicU64,   // of those, how many funded development
     pub device: Mutex<String>,
     pub status: Mutex<String>,
 }
@@ -32,6 +72,8 @@ impl Progress {
             rejected: AtomicU64::new(0),
             height: AtomicU64::new(0),
             hashed: AtomicU64::new(0),
+            submitted: AtomicU64::new(0),
+            donated: AtomicU64::new(0),
             device: Mutex::new(String::new()),
             status: Mutex::new("idle".into()),
         })
@@ -56,6 +98,8 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
     p.accepted.store(0, Ordering::Relaxed);
     p.rejected.store(0, Ordering::Relaxed);
     p.hashed.store(0, Ordering::Relaxed);
+    p.submitted.store(0, Ordering::Relaxed);
+    p.donated.store(0, Ordering::Relaxed);
 
     match Gpu::open() {
         Ok(g) => *p.device.lock().unwrap() = g.name(),
@@ -67,20 +111,55 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
     }
 
     let m = autolykos::big_m();
+    let don = donation();
 
-    // Reconnect loop: a dropped pool or a network blip retries instead of
-    // killing the miner. Only an explicit stop ends it.
+    // The epoch table lives out here so it survives session switches: it
+    // depends only on the block height, never on which address we mine for.
+    let mut table: Option<(u32, ScanMiner)> = None;
+
+    // Shares owed to you before the next development share. The donation is
+    // a *separate authorized session* — a pool binds each connection to the
+    // address that authorized it, so a share can only be credited to the
+    // session that found it. We therefore alternate sessions rather than
+    // relabel shares: 19 for you, 1 for development, and so on.
+    let mut owed_to_you: u64 = don.as_ref().map(|(_, every)| every - 1).unwrap_or(u64::MAX);
+    let mut donating = false;
+
     while !p.stop.load(Ordering::Relaxed) {
-        p.set_status("connecting…");
-        match Stratum::connect(&cfg.host, cfg.port, &cfg.address, "erga") {
-            Ok(s) => mine_session(s, &cfg, &p, &m),
+        let (addr, mut quota) = match (&don, donating) {
+            (Some((a, _)), true) => (a.clone(), 1u64),
+            _ => (cfg.address.clone(), owed_to_you.max(1)),
+        };
+        p.set_status(if donating { "connecting… (development share)" } else { "connecting…" });
+        match Stratum::connect(&cfg.host, cfg.port, &addr, "erga") {
+            Ok(s) => {
+                let end = mine_session(s, &addr, &p, &m, &mut table, &mut quota, donating);
+                match end {
+                    SessionEnd::Stopped => break,
+                    SessionEnd::QuotaMet => {
+                        if donating {
+                            donating = false;
+                            owed_to_you = don.as_ref().map(|(_, e)| e - 1).unwrap_or(u64::MAX);
+                        } else if don.is_some() {
+                            donating = true;
+                        }
+                        continue; // switch immediately, no backoff
+                    }
+                    SessionEnd::Closed => {
+                        // keep the phase; remember what is still owed
+                        if !donating {
+                            owed_to_you = quota;
+                        }
+                        p.set_status("pool disconnected — reconnecting…");
+                    }
+                }
+            }
             Err(e) => p.set_status(format!("connect failed ({e}) — retrying…")),
         }
         if p.stop.load(Ordering::Relaxed) {
             break;
         }
         p.rate_khs.store(0, Ordering::Relaxed);
-        // brief backoff before reconnecting
         for _ in 0..30 {
             if p.stop.load(Ordering::Relaxed) {
                 break;
@@ -94,9 +173,27 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
     p.running.store(false, Ordering::Relaxed);
 }
 
+/// Why a mining session ended.
+enum SessionEnd {
+    /// Submitted everything asked of it — the caller switches phase.
+    QuotaMet,
+    /// The pool hung up; the caller reconnects.
+    Closed,
+    /// The user pressed stop.
+    Stopped,
+}
+
 /// One connected mining session. Returns when the pool disconnects or `stop`
 /// is set; the caller reconnects if appropriate.
-fn mine_session(mut s: Stratum, cfg: &PoolCfg, p: &Arc<Progress>, m: &[u8]) {
+fn mine_session(
+    mut s: Stratum,
+    address: &str,
+    p: &Arc<Progress>,
+    m: &[u8],
+    table: &mut Option<(u32, ScanMiner)>,
+    quota: &mut u64,
+    donating: bool,
+) -> SessionEnd {
     let en1 = s.extranonce1.clone();
     let en1_bits = en1.len() as u32 * 8;
     let search_bits = 64 - en1_bits;
@@ -104,8 +201,6 @@ fn mine_session(mut s: Stratum, cfg: &PoolCfg, p: &Arc<Progress>, m: &[u8]) {
     let en1_prefix = if en1_bits == 0 { 0 } else { en1_val << search_bits };
     let tail_mask: u64 = if search_bits >= 64 { u64::MAX } else { (1u64 << search_bits) - 1 };
 
-    let mut miner: Option<ScanMiner> = None;
-    let mut cur_height = 0u32;
     let mut job: Option<Job> = None;
     let mut cursor: u64 = 0;
     let batch: u32 = 8_388_608; // 8M nonces per dispatch
@@ -129,15 +224,13 @@ fn mine_session(mut s: Stratum, cfg: &PoolCfg, p: &Arc<Progress>, m: &[u8]) {
                         p.rejected.fetch_add(1, Ordering::Relaxed);
                     }
                 }
-                PoolEvent::Closed => {
-                    p.set_status("pool disconnected — reconnecting…");
-                    return;
-                }
+                PoolEvent::Closed => return SessionEnd::Closed,
             }
         }
         if let Some(j) = latest_job {
-            if j.height != cur_height {
-                cur_height = j.height;
+            // Rebuild only when the height actually changed — a table built
+            // by the previous session is still exactly right for this one.
+            if table.as_ref().map(|(h, _)| *h) != Some(j.height) {
                 p.height.store(j.height as u64, Ordering::Relaxed);
                 let n = autolykos::calc_big_n(j.version, j.height);
                 p.set_status("building table…");
@@ -146,28 +239,28 @@ fn mine_session(mut s: Stratum, cfg: &PoolCfg, p: &Arc<Progress>, m: &[u8]) {
                     Ok(g) => g,
                     Err(e) => {
                         p.set_status(format!("GPU open failed: {e:?}"));
-                        return;
+                        return SessionEnd::Closed;
                     }
                 };
                 match ScanMiner::new_gpu_built(gpu, n, j.height, m) {
-                    Ok(mn) => miner = Some(mn),
+                    Ok(mn) => *table = Some((j.height, mn)),
                     Err(e) => {
                         // transient build error: drop this table, wait for next job
                         p.set_status(format!("table build retry: {e}"));
-                        miner = None;
-                        cur_height = 0;
+                        *table = None;
                         continue;
                     }
                 }
                 cursor = 0;
                 window_start = std::time::Instant::now();
                 window_hashed = 0;
-                p.set_status("mining");
             }
+            p.height.store(j.height as u64, Ordering::Relaxed);
+            p.set_status(if donating { "mining · development share" } else { "mining" });
             job = Some(j);
         }
 
-        let (Some(mn), Some(j)) = (&miner, &job) else {
+        let (Some((_, mn)), Some(j)) = (&*table, &job) else {
             std::thread::sleep(std::time::Duration::from_millis(80));
             continue;
         };
@@ -184,7 +277,20 @@ fn mine_session(mut s: Stratum, cfg: &PoolCfg, p: &Arc<Progress>, m: &[u8]) {
             if hit < j.target_b {
                 let nonce_hex = hex(&nb);
                 let en2_hex = hex(&nb[en1.len()..]);
-                let _ = s.submit(&cfg.address, "erga", &j.job_id, &en2_hex, &nonce_hex, "");
+                // The pool credits the address this session authorized with,
+                // so the share simply goes to whoever this session is for.
+                let _ = s.submit(address, "erga", &j.job_id, &en2_hex, &nonce_hex, "");
+                p.submitted.fetch_add(1, Ordering::Relaxed);
+                if donating {
+                    p.donated.fetch_add(1, Ordering::Relaxed);
+                }
+                *quota = quota.saturating_sub(1);
+                if *quota == 0 {
+                    // give the pool a breath to answer before we switch away
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                    drain_results(&mut s, p);
+                    return SessionEnd::QuotaMet;
+                }
             }
         }
         cursor = cursor.wrapping_add(batch as u64);
@@ -199,7 +305,21 @@ fn mine_session(mut s: Stratum, cfg: &PoolCfg, p: &Arc<Progress>, m: &[u8]) {
             window_hashed = 0;
         }
     }
-    // returns to run(), which reconnects unless stop was set
+    SessionEnd::Stopped
+}
+
+/// Read whatever the pool has already said about our submissions, so an
+/// accepted/rejected verdict is not lost when a session is switched away.
+fn drain_results(s: &mut Stratum, p: &Arc<Progress>) {
+    while let Ok(ev) = s.events.try_recv() {
+        if let PoolEvent::SubmitResult { accepted, .. } = ev {
+            if accepted {
+                p.accepted.fetch_add(1, Ordering::Relaxed);
+            } else {
+                p.rejected.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
 }
 
 fn left_pad_32(b: &[u8]) -> [u8; 32] {

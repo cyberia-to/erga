@@ -18,7 +18,9 @@ use eframe::egui;
 use egui::{Align2, Color32, FontId, Pos2, Sense, Stroke, Vec2};
 
 use balance::BalanceState;
+use erga_miner::engine::Progress;
 use miner::Miner;
+use std::sync::Arc;
 
 const BG: Color32 = Color32::from_rgb(3, 5, 4); // near-black with a faint green cast
 const MINT: Color32 = Color32::from_rgb(125, 255, 196);
@@ -34,11 +36,11 @@ fn main() -> eframe::Result<()> {
             let (w, h) = s.split_once('x')?;
             Some([w.parse().ok()?, h.parse().ok()?])
         })
-        .unwrap_or([460.0, 976.0]);
+        .unwrap_or([500.0, 1000.0]);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(size)
-            .with_min_inner_size([430.0, 934.0])
+            .with_min_inner_size([440.0, 620.0])
             .with_title("erga"),
         ..Default::default()
     };
@@ -189,11 +191,11 @@ impl eframe::App for App {
         ctx.request_repaint_after(std::time::Duration::from_millis(if running { 250 } else { 1000 }));
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            let avail_h = ui.available_height();
             let avail_w = ui.available_width();
+            let avail_h = ui.available_height();
             ui.add_space(16.0);
 
-            // ── header — wordmark left, controls right ────────────────
+            // ── header — wordmark left, pool + badge right ────────────
             ui.horizontal(|ui| {
                 ui.add_space(22.0);
                 let mut job = egui::text::LayoutJob::default();
@@ -214,433 +216,173 @@ impl eframe::App for App {
                     ui.add_space(22.0);
                     badge(ui, "experimental");
                     ui.add_space(8.0);
-                    // the pool chooser — same pool by default, closer doors
                     let prev = self.pool_idx;
                     egui::ComboBox::from_id_source("pool")
                         .selected_text(
                             egui::RichText::new(pools::POOLS[self.pool_idx].label).size(10.5),
                         )
                         .show_ui(ui, |ui| {
-                            for (i, p) in pools::POOLS.iter().enumerate() {
-                                ui.selectable_value(&mut self.pool_idx, i, p.label);
+                            for (i, pl) in pools::POOLS.iter().enumerate() {
+                                ui.selectable_value(&mut self.pool_idx, i, pl.label);
                             }
                         });
                     if self.pool_idx != prev {
                         pools::save_choice(self.pool_idx);
                         if running {
-                            // hop live: stop, land on the new door mid-flight
                             self.miner.stop();
                             if let Ok(w) = &self.wallet {
                                 let addr = w.address.clone();
-                                let p = &pools::POOLS[self.pool_idx];
-                                self.miner.start(addr, p.host, p.port);
+                                let pl = &pools::POOLS[self.pool_idx];
+                                self.miner.start(addr, pl.host, pl.port);
                             }
                         }
                     }
                 });
             });
 
-            // Wide window → the HUD: the crystal is the sun, the machine
-            // orbits on the left, the earnings on the right. Narrow window →
-            // the single centered column below.
-            let wide = avail_w >= 980.0;
-            if wide {
-                let p = self.miner.p.clone();
-                let mhs = p.mhs();
-                // refresh balance + ledger on the same 30s cadence
-                if let Some(addr) = self.address().map(|a| a.to_string()) {
-                    if self.last_balance.elapsed().as_secs() >= 30 {
-                        self.balance.fetch(addr.clone());
-                        if pools::has_ledger(self.pool_idx) {
-                            self.pool.fetch(addr);
-                        }
-                        self.last_balance = std::time::Instant::now();
-                    }
-                }
-
-                let side = 44.0;
-                let (lw, rw, gap) = (270.0, 330.0, 28.0);
-                let cw = (avail_w - side * 2.0 - lw - rw - gap * 2.0 - 48.0).max(240.0);
-                let cr = (cw * 0.34).min(avail_h * 0.21).clamp(110.0, 235.0);
-                let row_h = (cr * 2.3).max(400.0);
-                ui.add_space(((avail_h - row_h - 190.0) / 2.0).max(6.0));
-
-                ui.horizontal(|ui| {
-                    ui.add_space(side);
-                    // ── the machine — what your Mac is doing ──────────
-                    egui::Frame::none()
-                        .stroke(Stroke::new(1.0, MINT.gamma_multiply(0.22)))
-                        .rounding(12.0)
-                        .inner_margin(egui::Margin::symmetric(16.0, 14.0))
-                        .show(ui, |ui| {
-                            ui.vertical(|ui| {
-                            ui.set_width(lw - 32.0);
-                            ui.set_min_height(row_h - 28.0);
-                            caps(ui, "the machine", 10.0, MUTE);
-                            ui.add_space(10.0);
-                            let rate = if running { format!("{:.1}", mhs) } else { "—".to_string() };
-                            let mut job = egui::text::LayoutJob::default();
-                            job.append(
-                                &rate,
-                                0.0,
-                                egui::TextFormat {
-                                    font_id: play_bold(42.0),
-                                    color: MINT,
-                                    ..Default::default()
-                                },
-                            );
-                            ui.label(job);
-                            caps(ui, "mh/s", 10.0, MUTE);
-                            ui.add_space(3.0);
-                            ui.label(
-                                egui::RichText::new(p.status.lock().unwrap().clone())
-                                    .color(MUTE)
-                                    .size(11.0),
-                            );
-                            ui.add_space(10.0);
-                            ui.separator();
-                            ui.add_space(8.0);
-                            card_row(ui, "device", &p.device.lock().unwrap());
-                            {
-                                let acc = p.accepted.load(std::sync::atomic::Ordering::Relaxed);
-                                let rej = p.rejected.load(std::sync::atomic::Ordering::Relaxed);
-                                let shares =
-                                    if rej > 0 { format!("{acc} ({rej} rej)") } else { format!("{acc}") };
-                                card_row(ui, "shares", &shares);
-                            }
-                            {
-                                let h = p.height.load(std::sync::atomic::Ordering::Relaxed);
-                                card_row(ui, "block", &(if h > 0 { h.to_string() } else { "—".into() }));
-                            }
-                            card_row(
-                                ui,
-                                "hashed",
-                                &human(p.hashed.load(std::sync::atomic::Ordering::Relaxed)),
-                            );
-                            ui.add_space(10.0);
-                            ui.separator();
-                            ui.add_space(8.0);
-                            self.sys.refresh();
-                            card_row(ui, "cpu", &format!("{:.0}%", self.sys.cpu * 100.0));
-                            card_row(ui, "ram", &format!("{:.0}%", self.sys.mem * 100.0));
-                            card_row(ui, "net", &format!("{:.0} KB/s", self.sys.down_kbs));
-                            });
-                        });
-                    ui.add_space(gap);
-                    // ── the crystal sun ───────────────────────────────
-                    let (rect, resp) = ui.allocate_at_least(Vec2::new(cw, row_h), Sense::click());
-                    let center = rect.center();
-                    draw_crystal(ui, center, cr, running, self.spin, resp.hovered());
-                    ui.painter().text(
-                        center,
-                        Align2::CENTER_CENTER,
-                        if running { "MINING" } else { "START" },
-                        FontId::proportional((cr * 0.19).clamp(20.0, 36.0)),
-                        if running { BG } else { MINT },
-                    );
-                    if resp.clicked() {
-                        if running {
-                            self.miner.stop();
-                        } else if let Some(addr) = self.address().map(|a| a.to_string()) {
-                            let pl = &pools::POOLS[self.pool_idx];
-                            self.miner.start(addr, pl.host, pl.port);
-                        } else {
-                            self.miner.p.set_status("wallet unavailable");
-                        }
-                    }
-                    if resp.hovered() {
-                        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
-                    }
-                    ui.add_space(gap);
-                    // ── the earnings — what the work returns ──────────
-                    egui::Frame::none()
-                        .stroke(Stroke::new(1.0, MINT.gamma_multiply(0.22)))
-                        .rounding(12.0)
-                        .inner_margin(egui::Margin::symmetric(16.0, 14.0))
-                        .show(ui, |ui| {
-                            ui.vertical(|ui| {
-                            ui.set_width(rw - 32.0);
-                            ui.set_min_height(row_h - 28.0);
-                            ui.horizontal(|ui| {
-                                caps(ui, "the payout", 10.0, MUTE);
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        let sees = self.pool.inner.lock().unwrap().hashrate_24h_mhs;
-                                        caps(
-                                            ui,
-                                            &format!("sees {sees:.0} mh/s · 24h"),
-                                            9.0,
-                                            MUTE.gamma_multiply(0.85),
-                                        );
-                                    },
-                                );
-                            });
-                            ui.add_space(10.0);
-                            if pools::has_ledger(self.pool_idx) {
-                                let pi = self.pool.inner.lock().unwrap();
-                                if pi.ok {
-                                    payout_game(ui, &pi, mhs, running);
-                                } else {
-                                    caps(ui, "reading the pool ledger…", 9.0, MUTE);
-                                }
-                            } else {
-                                caps(ui, "this pool has no in-app ledger yet", 9.0, MUTE);
-                                ui.add_space(2.0);
-                                caps(ui, "track earnings on its site", 9.0, MUTE);
-                            }
-                            ui.add_space(10.0);
-                            ui.separator();
-                            ui.add_space(8.0);
-                            let b = self.balance.inner.lock().unwrap();
-                            let on_chain =
-                                b.erg.map(|e| format!("{e:.4} ERG")).unwrap_or("—".to_string());
-                            drop(b);
-                            card_row(ui, "on chain", &on_chain);
-                            });
-                        });
-                });
-
-                // ── the wallet strip — identity, out of the way ───────
-                ui.add_space(20.0);
-                if let Some(addr) = self.address().map(|a| a.to_string()) {
-                    ui.horizontal(|ui| {
-                        ui.add_space(((avail_w - 620.0) / 2.0).max(10.0));
-                        caps(ui, "wallet", 9.5, MUTE);
-                        ui.add_space(10.0);
-                        ui.label(
-                            egui::RichText::new(&addr)
-                                .monospace()
-                                .size(10.5)
-                                .color(CREAM.gamma_multiply(0.7)),
-                        );
-                        ui.add_space(10.0);
-                        if ui.button(egui::RichText::new("copy").size(10.0)).clicked() {
-                            ui.output_mut(|o| o.copied_text = addr.clone());
-                        }
-                        if ui.button(egui::RichText::new("back up").size(10.0)).clicked() {
-                            self.show_backup = true;
-                        }
-                    });
-                }
-            } else {
-
-            // ── the stage: one centered axis, scaled to the window ────
-            let cr = ((avail_h - 640.0) * 0.42)
-                .clamp(96.0, 120.0)
-                .min(avail_w * 0.28);
-            let est = cr * 2.4 + 760.0;
-            ui.add_space(((avail_h - est) / 2.0).max(4.0));
-
-            // ── the crystal button ────────────────────────────────────
-            let (rect, resp) = ui.allocate_at_least(
-                Vec2::new(ui.available_width(), cr * 2.35),
-                Sense::click(),
-            );
-            let center = rect.center();
-            draw_crystal(ui, center, cr, running, self.spin, resp.hovered());
-            let label = if running { "MINING" } else { "START" };
-            ui.painter().text(
-                center,
-                Align2::CENTER_CENTER,
-                label,
-                FontId::proportional((cr * 0.2).clamp(19.0, 34.0)),
-                if running { BG } else { MINT },
-            );
-            if resp.clicked() {
-                if running {
-                    self.miner.stop();
-                } else if let Some(addr) = self.address().map(|a| a.to_string()) {
-                    let p = &pools::POOLS[self.pool_idx];
-                    self.miner.start(addr, p.host, p.port);
-                } else {
-                    self.miner.p.set_status("wallet unavailable");
-                }
-            }
-            if resp.hovered() {
-                ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
-            }
-
-            // ── live hashrate ─────────────────────────────────────────
-            let p = self.miner.p.clone();
-            ui.add_space(6.0);
-            ui.vertical_centered(|ui| {
-                let rate = if running { format!("{:.1}", p.mhs()) } else { "—".to_string() };
-                let mut job = egui::text::LayoutJob::default();
-                job.append(
-                    &rate,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: play_bold((cr * 0.42).clamp(44.0, 60.0)),
-                        color: MINT,
-                        ..Default::default()
-                    },
-                );
-                ui.label(job);
-                ui.label(egui::RichText::new("MH/s").color(MUTE).size(13.0));
-                let status = p.status.lock().unwrap().clone();
-                ui.add_space(2.0);
-                ui.label(egui::RichText::new(status).color(MUTE).size(12.0));
-            });
-
-            // ── the centered column below the crystal ─────────────────
-            let col_w = avail_w.min(640.0);
-            let side = ((avail_w - col_w) / 2.0).max(0.0);
-            ui.horizontal(|ui| {
-                ui.add_space(side);
-                ui.vertical(|ui| {
-                    ui.set_width(col_w);
-
-            ui.add_space(12.0);
-            {
-                let acc = p.accepted.load(std::sync::atomic::Ordering::Relaxed);
-                let rej = p.rejected.load(std::sync::atomic::Ordering::Relaxed);
-                let shares = if rej > 0 { format!("{acc}  ({rej} rejected)") } else { format!("{acc}") };
-                stat_row(ui, "shares", &shares);
-            }
-            stat_row(ui, "device", &p.device.lock().unwrap());
-            {
-                let h = p.height.load(std::sync::atomic::Ordering::Relaxed);
-                stat_row(ui, "block", &(if h > 0 { h.to_string() } else { "—".into() }));
-            }
-            {
-                let total = p.hashed.load(std::sync::atomic::Ordering::Relaxed);
-                stat_row(ui, "hashed", &human(total));
-            }
-
-            // ── system dashboard row ──────────────────────────────────
-            self.sys.refresh();
-            let mhs = p.mhs();
-            ui.add_space(12.0);
-            ui.columns(4, |c| {
-                meter(&mut c[0], "CPU", self.sys.cpu, &format!("{:.0}%", self.sys.cpu * 100.0));
-                // GPU has no privilege-free utilisation read — its live signal
-                // is the hashrate, scaled against ~80 MH/s (the M4 Max ceiling)
-                meter(&mut c[1], "GPU", (mhs / 80.0) as f32, &format!("{mhs:.0} MH/s"));
-                meter(&mut c[2], "RAM", self.sys.mem, &format!("{:.0}%", self.sys.mem * 100.0));
-                let net = ((self.sys.down_kbs + self.sys.up_kbs) / 2048.0) as f32; // vs ~2 MB/s
-                meter(&mut c[3], "NET", net.min(1.0), &format!("{:.0} KB/s", self.sys.down_kbs));
-            });
-
-            ui.add_space(16.0);
-
-            // ── wallet card — bordered panel, the old.cyb.ai voice ────
-            let addr_opt: Option<String> = self.address().map(|a| a.to_string());
-            // auto-refresh balance + pool ledger every 30s
-            if let Some(addr) = &addr_opt {
+            // ── one refresh, one snapshot, both layouts ───────────────
+            if let Some(addr) = self.address().map(|a| a.to_string()) {
                 if self.last_balance.elapsed().as_secs() >= 30 {
                     self.balance.fetch(addr.clone());
                     if pools::has_ledger(self.pool_idx) {
-                        self.pool.fetch(addr.clone());
+                        self.pool.fetch(addr);
                     }
                     self.last_balance = std::time::Instant::now();
                 }
             }
-            egui::Frame::none()
-                .stroke(Stroke::new(1.0, MINT.gamma_multiply(0.24)))
-                .rounding(12.0)
-                .inner_margin(egui::Margin::symmetric(16.0, 12.0))
-                .outer_margin(egui::Margin::symmetric(20.0, 0.0))
-                .show(ui, |ui| {
-                    match &addr_opt {
-                        Some(addr) => {
-                            ui.horizontal(|ui| {
-                                caps(ui, "your wallet", 10.0, MUTE);
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if ui.button(egui::RichText::new("back up").size(10.5)).clicked() {
-                                        self.show_backup = true;
-                                    }
-                                });
-                            });
-                            ui.add_space(7.0);
-                            let addr_s = addr.to_string();
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    egui::RichText::new(&addr_s)
-                                        .color(CREAM.gamma_multiply(0.72))
-                                        .size(10.8)
-                                        .monospace(),
-                                );
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if ui.button(egui::RichText::new("copy").size(10.5)).clicked() {
-                                        ui.output_mut(|o| o.copied_text = addr_s.clone());
-                                    }
-                                });
-                            });
-                            ui.add_space(8.0);
-                            // the balance — the number that matters, in Play Bold
-                            let b = self.balance.inner.lock().unwrap();
-                            let (amount, dim) = match (b.erg, b.querying, &b.error) {
-                                (Some(erg), _, _) => (format!("{erg:.4}"), false),
-                                (None, true, _) => ("…".to_string(), true),
-                                (None, _, Some(_)) => ("—".to_string(), true),
-                                _ => ("0.0000".to_string(), true),
-                            };
-                            let err = b.error.clone();
-                            drop(b);
-                            ui.horizontal(|ui| {
-                                let mut job = egui::text::LayoutJob::default();
-                                job.append(
-                                    &amount,
-                                    0.0,
-                                    egui::TextFormat {
-                                        font_id: play_bold(30.0),
-                                        color: if dim { MINT.gamma_multiply(0.65) } else { MINT },
-                                        ..Default::default()
-                                    },
-                                );
-                                ui.label(job);
-                                ui.add_space(2.0);
-                                caps(ui, "erg", 11.0, MUTE);
-                            });
-                            if let Some(e) = err {
-                                ui.label(egui::RichText::new(e).color(Color32::from_rgb(255, 140, 140)).size(10.5));
-                            }
+            self.sys.refresh();
+            let p = self.miner.p.clone();
+            let mhs = p.mhs();
+            let (cpu, mem, net_kbs) = (self.sys.cpu, self.sys.mem, self.sys.down_kbs);
+            let on_chain = self.balance.inner.lock().unwrap().erg;
+            let has_ledger = pools::has_ledger(self.pool_idx);
+            let addr_opt = self.address().map(|a| a.to_string());
+            let mut want_backup = false;
+            let mut start_stop = false;
+            let pool_label = pools::POOLS[self.pool_idx].label;
 
-                            // ── the payout — the one bar the player fills ──
-                            if !pools::has_ledger(self.pool_idx) {
-                                ui.add_space(10.0);
-                                ui.separator();
-                                ui.add_space(8.0);
-                                caps(
-                                    ui,
-                                    "this pool has no in-app ledger yet — track earnings on its site",
-                                    9.0,
-                                    MUTE,
-                                );
-                            }
-                            let pi = self.pool.inner.lock().unwrap();
-                            if pi.ok && pools::has_ledger(self.pool_idx) {
-                                ui.add_space(10.0);
-                                ui.separator();
-                                ui.add_space(8.0);
-                                ui.horizontal(|ui| {
-                                    caps(ui, "at the pool", 10.0, MUTE);
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        caps(
-                                            ui,
-                                            &format!("sees {:.0} mh/s · 24h", pi.hashrate_24h_mhs),
-                                            9.0,
-                                            MUTE.gamma_multiply(0.85),
-                                        );
-                                    });
-                                });
-                                ui.add_space(9.0);
-                                payout_game(ui, &pi, mhs, running);
-                            }
+            let wide = avail_w >= 1000.0;
+            if wide {
+                // ── the HUD: crystal sun, panels in orbit ─────────────
+                let side = 40.0;
+                let (lw, rw, gap) = (320.0, 380.0, 30.0);
+                let cw = (avail_w - side * 2.0 - lw - rw - gap * 2.0 - 48.0).max(260.0);
+                let cr = (cw * 0.34).min(avail_h * 0.22).clamp(120.0, 240.0);
+                // the centre column: crystal block + the hero rate beneath it
+                let centre_h = cr * 2.05 + 120.0;
+                ui.add_space(((avail_h - centre_h - 210.0) / 2.0).max(10.0));
+
+                ui.horizontal(|ui| {
+                    ui.add_space(side);
+                    panel_frame(ui, lw, 0.0, |ui| {
+                        machine_panel(ui, &p, cpu, mem, net_kbs, mhs, running);
+                    });
+                    ui.add_space(gap);
+                    // the crystal and the hero rate under it
+                    ui.vertical(|ui| {
+                        ui.set_width(cw);
+                        let (rect, resp) =
+                            ui.allocate_exact_size(Vec2::new(cw, cr * 2.05), Sense::click());
+                        draw_crystal(ui, rect.center(), cr, running, self.spin, resp.hovered());
+                        ui.painter().text(
+                            rect.center(),
+                            Align2::CENTER_CENTER,
+                            if running { "MINING" } else { "START" },
+                            FontId::proportional((cr * 0.19).clamp(22.0, 38.0)),
+                            if running { BG } else { MINT },
+                        );
+                        if resp.clicked() {
+                            start_stop = true;
                         }
-                        None => {
-                            ui.label(
-                                egui::RichText::new("wallet unavailable — could not read the seed file")
-                                    .color(Color32::from_rgb(255, 140, 140))
-                                    .size(12.0),
-                            );
+                        if resp.hovered() {
+                            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                         }
-                    }
+                        ui.add_space(10.0);
+                        hero_rate(ui, mhs, running, &p, (cr * 0.44).clamp(52.0, 76.0));
+                    });
+                    ui.add_space(gap);
+                    panel_frame(ui, rw, 0.0, |ui| {
+                        let pi = self.pool.inner.lock().unwrap();
+                        payout_panel(ui, &pi, has_ledger, on_chain, mhs, running, &p);
+                    });
                 });
-                }); // column
-            }); // centered row
-            } // end compact layout
+
+                ui.add_space(18.0);
+                if let Some(addr) = &addr_opt {
+                    wallet_strip(ui, addr, avail_w, &mut want_backup);
+                }
+            } else {
+                // ── narrow: the same organs, stacked on one axis ──────
+                let col_w = (avail_w - 44.0).min(600.0);
+                let side = ((avail_w - col_w) / 2.0).max(0.0);
+                let cr = (col_w * 0.30).clamp(112.0, 155.0);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        ui.add_space(6.0);
+                        let (rect, resp) = ui.allocate_at_least(
+                            Vec2::new(ui.available_width(), cr * 2.25),
+                            Sense::click(),
+                        );
+                        draw_crystal(ui, rect.center(), cr, running, self.spin, resp.hovered());
+                        ui.painter().text(
+                            rect.center(),
+                            Align2::CENTER_CENTER,
+                            if running { "MINING" } else { "START" },
+                            FontId::proportional((cr * 0.2).clamp(20.0, 32.0)),
+                            if running { BG } else { MINT },
+                        );
+                        if resp.clicked() {
+                            start_stop = true;
+                        }
+                        if resp.hovered() {
+                            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+                        }
+                        ui.add_space(4.0);
+                        ui.vertical_centered(|ui| {
+                            hero_rate(ui, mhs, running, &p, 58.0);
+                        });
+                        ui.add_space(16.0);
+
+                        ui.horizontal(|ui| {
+                            ui.add_space(side);
+                            ui.vertical(|ui| {
+                                ui.set_width(col_w);
+                                panel_frame(ui, col_w, 0.0, |ui| {
+                                    machine_panel(ui, &p, cpu, mem, net_kbs, mhs, running);
+                                });
+                                ui.add_space(12.0);
+                                panel_frame(ui, col_w, 0.0, |ui| {
+                                    let pi = self.pool.inner.lock().unwrap();
+                                    payout_panel(ui, &pi, has_ledger, on_chain, mhs, running, &p);
+                                });
+                                ui.add_space(14.0);
+                                if let Some(addr) = &addr_opt {
+                                    wallet_strip(ui, addr, col_w, &mut want_backup);
+                                }
+                                ui.add_space(14.0);
+                                ui.vertical_centered(|ui| {
+                                    honest_footer(ui, pool_label);
+                                });
+                                ui.add_space(12.0);
+                            });
+                        });
+                    });
+            }
+
+            if want_backup {
+                self.show_backup = true;
+            }
+            if start_stop {
+                if running {
+                    self.miner.stop();
+                } else if let Some(addr) = addr_opt {
+                    let pl = &pools::POOLS[self.pool_idx];
+                    self.miner.start(addr, pl.host, pl.port);
+                } else {
+                    self.miner.p.set_status("wallet unavailable");
+                }
+            }
 
             // ── backup panel (reveal the seed once, with a warning) ────
             if self.show_backup {
@@ -680,21 +422,14 @@ impl eframe::App for App {
                 }
             }
 
-            // ── honest footer ─────────────────────────────────────────
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                ui.add_space(12.0);
-                caps(ui, "every share re-verified on-cpu before it is sent", 8.5, MUTE.gamma_multiply(0.8));
-                ui.add_space(2.0);
-                caps(
-                    ui,
-                    &format!(
-                        "mines autolykos v2 to {} under your address",
-                        pools::POOLS[self.pool_idx].label
-                    ),
-                    8.5,
-                    MUTE.gamma_multiply(0.8),
-                );
-            });
+            // the footer rides at the bottom only in the wide HUD; in the
+            // narrow layout it lives inside the scroll, after the content.
+            if wide {
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                    ui.add_space(12.0);
+                    honest_footer(ui, pools::POOLS[self.pool_idx].label);
+                });
+            }
         });
     }
 }
@@ -711,21 +446,241 @@ fn badge(ui: &mut egui::Ui, text: &str) {
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, MINT);
 }
 
-/// A compact dashboard meter: label, a thin fill bar (0..1), a value.
+/// A dashboard meter: label, a segmented fill bar (0..1), the value in bold.
+/// Segments make the level readable at a glance instead of a smooth smear.
 fn meter(ui: &mut egui::Ui, label: &str, frac: f32, val: &str) {
-    ui.vertical_centered(|ui| {
-        ui.label(egui::RichText::new(label).size(9.0).color(MINT).strong());
-        ui.add_space(2.0);
-        let w = ui.available_width().min(90.0);
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 5.0), Sense::hover());
-        let bg = egui::Rect::from_min_size(rect.min, Vec2::new(w, 5.0));
-        ui.painter().rect_filled(bg, 2.5, Color32::from_rgb(30, 40, 34));
+    ui.vertical(|ui| {
+        caps(ui, label, 9.0, MINT.gamma_multiply(0.9));
+        ui.add_space(4.0);
+        let w = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 9.0), Sense::hover());
+        ui.painter().rect_filled(rect, 4.5, Color32::from_rgb(24, 34, 29));
         let f = frac.clamp(0.0, 1.0);
-        let fill = egui::Rect::from_min_size(rect.min, Vec2::new(w * f, 5.0));
         let col = if f > 0.9 { Color32::from_rgb(255, 180, 120) } else { MINT };
-        ui.painter().rect_filled(fill, 2.5, col);
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(rect.min, Vec2::new((w * f).max(2.0), 9.0)),
+            4.5,
+            col,
+        );
+        for i in 1..8 {
+            let x = rect.min.x + w * i as f32 / 8.0;
+            ui.painter().line_segment(
+                [Pos2::new(x, rect.min.y + 1.0), Pos2::new(x, rect.max.y - 1.0)],
+                Stroke::new(1.0, BG),
+            );
+        }
+        ui.add_space(4.0);
+        let mut job = egui::text::LayoutJob::default();
+        job.append(
+            val,
+            0.0,
+            egui::TextFormat {
+                font_id: play_bold(14.0),
+                color: CREAM.gamma_multiply(0.92),
+                ..Default::default()
+            },
+        );
+        ui.label(job);
+    });
+}
+
+/// A bordered panel. `min_h` of 0 lets the panel size to its content.
+fn panel_frame(
+    ui: &mut egui::Ui,
+    w: f32,
+    min_h: f32,
+    add: impl FnOnce(&mut egui::Ui),
+) {
+    egui::Frame::none()
+        .stroke(Stroke::new(1.0, MINT.gamma_multiply(0.22)))
+        .rounding(14.0)
+        .inner_margin(egui::Margin::symmetric(18.0, 16.0))
+        .show(ui, |ui| {
+            ui.vertical(|ui| {
+                ui.set_width(w - 36.0);
+                if min_h > 0.0 {
+                    ui.set_min_height(min_h - 32.0);
+                }
+                add(ui);
+            });
+        });
+}
+
+/// The hero number: the live hashrate, the biggest thing on the screen
+/// after the crystal itself.
+fn hero_rate(ui: &mut egui::Ui, mhs: f64, running: bool, p: &Arc<Progress>, size: f32) {
+    ui.vertical_centered(|ui| {
+        let text = if running { format!("{mhs:.1}") } else { "—".to_string() };
+        let mut job = egui::text::LayoutJob::default();
+        job.append(
+            &text,
+            0.0,
+            egui::TextFormat { font_id: play_bold(size), color: MINT, ..Default::default() },
+        );
+        ui.label(job);
+        caps(ui, "mh/s", 11.0, MUTE);
         ui.add_space(2.0);
-        ui.label(egui::RichText::new(val).size(10.0).color(CREAM.gamma_multiply(0.85)));
+        ui.label(
+            egui::RichText::new(p.status.lock().unwrap().clone())
+                .color(MUTE)
+                .size(11.5),
+        );
+    });
+}
+
+/// THE MACHINE — what your Mac is doing right now, in meters and counts.
+fn machine_panel(
+    ui: &mut egui::Ui,
+    p: &Arc<Progress>,
+    cpu: f32,
+    mem: f32,
+    net_kbs: f64,
+    mhs: f64,
+    running: bool,
+) {
+    use std::sync::atomic::Ordering as O;
+    caps(ui, "the machine", 10.5, MUTE);
+    ui.add_space(12.0);
+    // the graphic heart of the panel — four live meters
+    ui.columns(2, |c| {
+        meter(&mut c[0], "cpu", cpu, &format!("{:.0}%", cpu * 100.0));
+        // GPU has no privilege-free utilisation read; the hashrate is its
+        // honest signal, scaled against ~80 MH/s (the M4 Max ceiling).
+        meter(&mut c[1], "gpu", (mhs / 80.0) as f32, &format!("{mhs:.0} MH/s"));
+    });
+    ui.add_space(12.0);
+    ui.columns(2, |c| {
+        meter(&mut c[0], "ram", mem, &format!("{:.0}%", mem * 100.0));
+        meter(
+            &mut c[1],
+            "net",
+            (net_kbs / 2048.0) as f32,
+            &format!("{net_kbs:.0} KB/s"),
+        );
+    });
+    ui.add_space(14.0);
+    ui.separator();
+    ui.add_space(10.0);
+    let dev = p.device.lock().unwrap().clone();
+    card_row(ui, "device", if dev.is_empty() { "—" } else { &dev });
+    {
+        let acc = p.accepted.load(O::Relaxed);
+        let rej = p.rejected.load(O::Relaxed);
+        card_row(
+            ui,
+            "shares",
+            &if rej > 0 { format!("{acc}  ({rej} rejected)") } else { format!("{acc}") },
+        );
+    }
+    {
+        let h = p.height.load(O::Relaxed);
+        card_row(ui, "block", &(if h > 0 { h.to_string() } else { "—".into() }));
+    }
+    card_row(ui, "hashed", &human(p.hashed.load(O::Relaxed)));
+    if !running {
+        ui.add_space(6.0);
+        caps(ui, "press the crystal to begin", 9.0, MUTE.gamma_multiply(0.8));
+    }
+}
+
+/// THE PAYOUT — what the work returns: the game, the ledger, the balance.
+fn payout_panel(
+    ui: &mut egui::Ui,
+    pi: &pool::PoolInfo,
+    has_ledger: bool,
+    on_chain: Option<f64>,
+    mhs: f64,
+    running: bool,
+    p: &Arc<Progress>,
+) {
+    ui.horizontal(|ui| {
+        caps(ui, "the payout", 10.5, MUTE);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if has_ledger && pi.ok {
+                caps(
+                    ui,
+                    &format!("sees {:.0} mh/s · 24h", pi.hashrate_24h_mhs),
+                    9.0,
+                    MUTE.gamma_multiply(0.85),
+                );
+            }
+        });
+    });
+    ui.add_space(12.0);
+    if !has_ledger {
+        caps(ui, "this pool has no in-app ledger yet", 9.5, MUTE);
+        ui.add_space(3.0);
+        caps(ui, "track earnings on its site", 9.5, MUTE);
+    } else if pi.ok {
+        payout_game(ui, pi, mhs, running);
+    } else {
+        caps(ui, "reading the pool ledger…", 9.5, MUTE);
+    }
+
+    // the development donation, always visible, never hidden
+    let donated = p.donated.load(std::sync::atomic::Ordering::Relaxed);
+    ui.add_space(4.0);
+    card_row(ui, "to development", &format!("{donated} shares (5%)"));
+
+    ui.add_space(12.0);
+    ui.separator();
+    ui.add_space(10.0);
+    caps(ui, "your balance on chain", 9.5, MUTE);
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let (text, dim) = match on_chain {
+            Some(e) => (format!("{e:.4}"), false),
+            None => ("0.0000".to_string(), true),
+        };
+        let mut job = egui::text::LayoutJob::default();
+        job.append(
+            &text,
+            0.0,
+            egui::TextFormat {
+                font_id: play_bold(34.0),
+                color: if dim { MINT.gamma_multiply(0.6) } else { MINT },
+                ..Default::default()
+            },
+        );
+        ui.label(job);
+        ui.add_space(3.0);
+        caps(ui, "erg", 11.0, MUTE);
+    });
+}
+
+/// What the app is honestly doing, in two quiet lines.
+fn honest_footer(ui: &mut egui::Ui, pool_label: &str) {
+    caps(ui, "every share re-verified on-cpu before it is sent", 8.5, MUTE.gamma_multiply(0.8));
+    ui.add_space(2.0);
+    caps(
+        ui,
+        &format!("mines autolykos v2 to {pool_label} under your address"),
+        8.5,
+        MUTE.gamma_multiply(0.8),
+    );
+    ui.add_space(2.0);
+    caps(ui, "5% of shares fund development", 8.5, MUTE.gamma_multiply(0.8));
+}
+
+/// The wallet strip — identity, present but out of the game's way.
+fn wallet_strip(ui: &mut egui::Ui, addr: &str, w: f32, want_backup: &mut bool) {
+    ui.horizontal(|ui| {
+        ui.add_space(((ui.available_width() - w.min(660.0)) / 2.0).max(0.0));
+        caps(ui, "wallet", 9.5, MUTE);
+        ui.add_space(10.0);
+        ui.label(
+            egui::RichText::new(addr)
+                .monospace()
+                .size(10.5)
+                .color(CREAM.gamma_multiply(0.72)),
+        );
+        ui.add_space(8.0);
+        if ui.button(egui::RichText::new("copy").size(10.0)).clicked() {
+            ui.output_mut(|o| o.copied_text = addr.to_string());
+        }
+        if ui.button(egui::RichText::new("back up").size(10.0)).clicked() {
+            *want_backup = true;
+        }
     });
 }
 

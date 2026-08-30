@@ -46,18 +46,20 @@ fn main() {
                     }
                     // status may contain spaces; keep it last, one field per token
                     println!(
-                        "STAT {} {} {acc} {rej} {} {st}",
+                        "STAT {} {} {acc} {rej} {} {} {st}",
                         p.rate_khs.load(Ordering::Relaxed),
                         p.height.load(Ordering::Relaxed),
                         p.hashed.load(Ordering::Relaxed),
+                        p.donated.load(Ordering::Relaxed),
                     );
                     use std::io::Write;
                     let _ = std::io::stdout().flush();
                 } else {
                     let line = format!(
-                        "{:>6.1} MH/s | height {} | accepted {acc} rejected {rej} | {st}",
+                        "{:>6.1} MH/s | height {} | accepted {acc} rejected {rej} | donated {} | {st}",
                         p.mhs(),
-                        p.height.load(Ordering::Relaxed)
+                        p.height.load(Ordering::Relaxed),
+                        p.donated.load(Ordering::Relaxed)
                     );
                     if line != last {
                         println!("{line}");
