@@ -37,13 +37,19 @@ fn main() -> eframe::Result<()> {
             Some([w.parse().ok()?, h.parse().ok()?])
         })
         .unwrap_or([500.0, 1000.0]);
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size(size)
-            .with_min_inner_size([440.0, 620.0])
-            .with_title("erga"),
-        ..Default::default()
-    };
+    // The Dock tile of a *running* app comes from NSApplication's icon, not
+    // from the bundle's .icns — and winit resets it when no icon is given, so
+    // macOS falls back to a generated letter placeholder. Handing eframe the
+    // same artwork the bundle ships keeps the icon right while we run.
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size(size)
+        .with_min_inner_size([440.0, 620.0])
+        .with_title("erga");
+    match eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png")) {
+        Ok(icon) => viewport = viewport.with_icon(icon),
+        Err(e) => eprintln!("icon: {e}"),
+    }
+    let options = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native(
         "erga",
         options,
