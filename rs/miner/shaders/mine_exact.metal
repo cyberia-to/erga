@@ -126,8 +126,14 @@ kernel void build_kernel(
         ulong mm[16];
         for (uint w=0; w<16; w++) {
             uint k0 = b*128u + w*8u;                 // byte offset of this word
+            // The pad index is at most 1023 within the message, so only two
+            // of its eight big-endian bytes are ever non-zero; placing them
+            // directly is cheaper than a general swap64. Measured at ~1%:
+            // the Metal compiler was already folding most of it. Kept because
+            // it states the intent, not because it bought much.
+            uint q = b*16u + w - 1u;
             mm[w] = (k0 == 0u)     ? pre             // idx || height
-                  : (k0 + 8u <= T) ? swap64((ulong)(b*16u + w - 1u))
+                  : (k0 + 8u <= T) ? (((ulong)(q & 0xffu) << 56) | ((ulong)(q >> 8) << 48))
                                    : 0UL;           // past the message: zero pad
         }
         ulong t = ((b+1u)*128u < T) ? (ulong)((b+1u)*128u) : (ulong)T;
