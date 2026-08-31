@@ -472,16 +472,19 @@ impl eframe::App for App {
                 // sits dead centre of the window with the two panels — cost
                 // on the left, return on the right — level with it.
                 let side = 40.0;
-                let (pw, gap) = (360.0, 30.0);
+                let (pw, gap) = (330.0, 30.0);
                 let cw = (avail_w - side * 2.0 - pw * 2.0 - gap * 2.0).max(260.0);
                 // the actions own the foot of the window
-                let foot_h = 132.0;
+                // measured against what the foot actually holds: the bar, the
+                // address, and the air around them. Under-reserving it is what
+                // pressed the status line against the wallet label.
+                let foot_h = 186.0;
                 let band_h = (avail_h - foot_h - 16.0).max(340.0);
                 // For the crystal's centre to land on band_h/2 while the rate
                 // still fits beneath it, the radius cannot exceed half the
                 // band less what sits below. Anything larger pushes the wallet
                 // out of the foot and over the status line.
-                let head_h = 110.0; // caps + the number + the gap under it
+                let head_h = 132.0; // caps + the number + the gap under it
                 // Only the status line sits under the crystal now — the rate
                 // moved inside it. A giant number below competed with the
                 // balance above and, kept centred, left no room for either.
@@ -489,8 +492,15 @@ impl eframe::App for App {
                 let cr = (cw * 0.34)
                     .min(band_h / 2.0 - rate_h)
                     .clamp(110.0, 250.0);
-                let panel_h = (band_h - 40.0).clamp(300.0, 640.0);
+                // sized to their content, not to the window: a panel that
+                // stretches is mostly empty
+                let panel_h = (band_h - 40.0).clamp(300.0, 430.0);
 
+                if !running {
+                    ui.add_space(2.0);
+                    start_hint(ui);
+                }
+                ui.add_space(if running { 8.0 } else { 22.0 });
                 ui.horizontal(|ui| {
                     ui.add_space(side);
                     // panels are centred on the crystal, not hung from the top
@@ -498,7 +508,7 @@ impl eframe::App for App {
                         ui.set_width(pw);
                         ui.add_space(((band_h - panel_h) / 2.0).max(0.0));
                         panel_frame(ui, pw, panel_h, |ui| {
-                            machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs, all_time);
+                            machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs);
                         });
                     });
                     ui.add_space(gap);
@@ -508,7 +518,7 @@ impl eframe::App for App {
                         // crystal's own centre lands on band_h/2 exactly.
                         ui.add_space(((band_h / 2.0) - cr - head_h).max(4.0));
                         big_balance(ui, on_chain, cw);
-                        ui.add_space(14.0);
+                        ui.add_space(34.0);
                         let (rect, resp) =
                             ui.allocate_exact_size(Vec2::new(cw, cr * 2.0), Sense::click());
                         draw_crystal(ui, rect.center(), cr, running, self.spin, resp.hovered());
@@ -561,15 +571,18 @@ impl eframe::App for App {
                         ui.add_space(((band_h - panel_h) / 2.0).max(0.0));
                         panel_frame(ui, pw, panel_h, |ui| {
                             let pi = self.pool.inner.lock().unwrap();
-                            payout_panel(ui, &pi, has_ledger, solo, mhs, running, panel_h - 32.0);
+                            payout_panel(ui, &pi, has_ledger, solo, mhs, running, all_time, panel_h - 32.0);
                         });
                     });
                 });
 
-                // the actions, at the foot of the window and sized to be hit
+                // the address, then the bar hard against the bottom edge
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                    ui.add_space(22.0);
-                    wallet_block(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
+                    ui.add_space(20.0);
+                    action_bar(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
+                    ui.add_space(16.0);
+                    wallet_block(ui, addr_opt.as_deref());
+                    ui.add_space(34.0); // clear of the status line above
                 });
             } else {
                 // ── narrow: the same organs, stacked on one axis ──────
@@ -579,9 +592,13 @@ impl eframe::App for App {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
-                        ui.add_space(10.0);
-                        big_balance(ui, on_chain, col_w);
+                        if !running {
+                            ui.add_space(6.0);
+                            start_hint(ui);
+                        }
                         ui.add_space(12.0);
+                        big_balance(ui, on_chain, col_w);
+                        ui.add_space(26.0);
                         let (rect, resp) = ui.allocate_at_least(
                             Vec2::new(ui.available_width(), cr * 2.25),
                             Sense::click(),
@@ -605,7 +622,9 @@ impl eframe::App for App {
                             hero_rate(ui, mhs, running, &p, 58.0);
                         });
                         ui.add_space(16.0);
-                        wallet_block(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
+                        wallet_block(ui, addr_opt.as_deref());
+                        ui.add_space(14.0);
+                        action_bar(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
                         ui.add_space(18.0);
 
                         ui.horizontal(|ui| {
@@ -613,12 +632,12 @@ impl eframe::App for App {
                             ui.vertical(|ui| {
                                 ui.set_width(col_w);
                                 panel_frame(ui, col_w, 0.0, |ui| {
-                                    machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs, all_time);
+                                    machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs);
                                 });
                                 ui.add_space(12.0);
                                 panel_frame(ui, col_w, 0.0, |ui| {
                                     let pi = self.pool.inner.lock().unwrap();
-                                    payout_panel(ui, &pi, has_ledger, solo, mhs, running, 0.0);
+                                    payout_panel(ui, &pi, has_ledger, solo, mhs, running, all_time, 0.0);
                                 });
                                 ui.add_space(14.0);
                             });
@@ -722,6 +741,18 @@ fn badge(ui: &mut egui::Ui, text: &str, tint: Color32) {
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, tint);
 }
 
+/// The invitation to start, at the top of the window. It breathes rather
+/// than blinks: a slow sine on the alpha, so it draws the eye without
+/// nagging it.
+fn start_hint(ui: &mut egui::Ui) {
+    let t = ui.input(|i| i.time);
+    // ~4.5 s per breath, never fully out
+    let a = 0.42 + 0.58 * (0.5 - 0.5 * ((t * 1.4).cos() as f32));
+    ui.vertical_centered(|ui| {
+        caps(ui, "press the crystal to begin", 10.5, MINT.gamma_multiply(a));
+    });
+}
+
 /// The seed, alone on screen. Returns true when the user dismisses it.
 ///
 /// Not a modal: a modal invites you to keep working with your wallet's keys
@@ -812,13 +843,15 @@ fn backup_screen(ui: &mut egui::Ui, seed: Option<&str>, secs_left: f32) -> bool 
 /// to move. It is the one figure here that can grow without bound, so it is
 /// also the one allowed to shrink its own type rather than spill.
 fn big_balance(ui: &mut egui::Ui, on_chain: Option<f64>, w: f32) {
-    let (text, dim) = match on_chain {
-        Some(e) => (format!("{e:.4}"), e <= 0.0),
-        None => ("0.0000".to_string(), true),
+    let text = match on_chain {
+        Some(e) => format!("{e:.4}"),
+        None => "0.0000".to_string(),
     };
-    let colour = if dim { MINT.gamma_multiply(0.55) } else { MINT };
+    // Always full strength. Dimming it for being zero made the hashrate the
+    // brightest thing on screen, which inverts what this app is for.
+    let colour = MINT;
     let avail = (w - 90.0).max(80.0);
-    let mut size = 56.0f32;
+    let mut size = 60.0f32;
     while size > 18.0 {
         let g = ui.painter().layout_no_wrap(text.clone(), play_bold(size), colour);
         if g.size().x <= avail {
@@ -963,11 +996,10 @@ fn machine_panel(
     mhs: f64,
     running: bool,
     // eff_mhs: hashes/sec over the whole session, table rebuilds included —
-    // the rate the pool will agree with. all_time: accepted shares and
-    // hashes across every run, ever.
+    // the rate the pool will agree with.
     eff_mhs: Option<f64>,
-    all_time: (u64, u64),
 ) {
+    let _ = running;
     use std::sync::atomic::Ordering as O;
     caps(ui, "the machine", 10.5, MUTE);
     ui.add_space(12.0);
@@ -1015,19 +1047,6 @@ fn machine_panel(
         // seconds spent rebuilding the table each block too.
         card_row(ui, "effective", &format!("{e:.1} MH/s"));
     }
-    if all_time.0 > 0 || all_time.1 > 0 {
-        ui.add_space(10.0);
-        ui.separator();
-        ui.add_space(8.0);
-        caps(ui, "all time", 9.5, MUTE.gamma_multiply(0.85));
-        ui.add_space(4.0);
-        card_row(ui, "shares", &all_time.0.to_string());
-        card_row(ui, "hashed", &human(all_time.1));
-    }
-    if !running {
-        ui.add_space(6.0);
-        caps(ui, "press the crystal to begin", 9.0, MUTE.gamma_multiply(0.8));
-    }
 }
 
 /// THE PAYOUT — what the work returns: the game, the ledger, the balance.
@@ -1038,8 +1057,9 @@ fn payout_panel(
     solo: bool,
     mhs: f64,
     running: bool,
-    // target_h: the height this panel must come out at, so the balance can
-    // take the slack. 0 = let the content decide (the narrow layout).
+    // all_time: accepted shares and hashes across every run, ever.
+    all_time: (u64, u64),
+    // target_h: the height this panel must come out at. 0 = content decides.
     target_h: f32,
 ) {
     ui.horizontal(|ui| {
@@ -1069,9 +1089,17 @@ fn payout_panel(
     ui.add_space(12.0);
     ui.separator();
     ui.add_space(10.0);
-    // The panel ends with the ledger. The balance moved to the head of the
-    // window, where it belongs: it is the reason for all of this, not a
-    // footnote to the pool's bookkeeping.
+    // What you have earned across every run belongs with earnings, not with
+    // the machine's vital signs.
+    if all_time.0 > 0 || all_time.1 > 0 {
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(9.0);
+        caps(ui, "all time", 9.5, MUTE.gamma_multiply(0.85));
+        ui.add_space(5.0);
+        card_row(ui, "shares", &all_time.0.to_string());
+        card_row(ui, "hashed", &human(all_time.1));
+    }
     let _ = target_h;
 }
 
@@ -1079,12 +1107,7 @@ fn payout_panel(
 /// The wallet strip — identity, present but out of the game's way.
 /// The wallet, directly under the button that fills it: the address large
 /// enough to read across a room, and the two things you actually do with it.
-fn wallet_block(
-    ui: &mut egui::Ui,
-    addr: Option<&str>,
-    want_backup: &mut bool,
-    want_report: &mut bool,
-) {
+fn wallet_block(ui: &mut egui::Ui, addr: Option<&str>) {
     let Some(addr) = addr else {
         ui.vertical_centered(|ui| {
             ui.label(
@@ -1104,30 +1127,47 @@ fn wallet_block(
                 .size(13.0)
                 .color(CREAM.gamma_multiply(0.9)),
         );
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
-            // These are the only things you do here besides press the
-            // crystal, so they are sized to be hit rather than squinted at.
-            ui.spacing_mut().button_padding = Vec2::new(22.0, 11.0);
-            ui.spacing_mut().item_spacing.x = 12.0;
-            let row = 430.0;
-            ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
-            if ui.button(egui::RichText::new("copy address").size(13.5)).clicked() {
-                ui.output_mut(|o| o.copied_text = addr.to_string());
+    });
+}
+
+/// The action bar: the only things you do here besides press the crystal,
+/// so they sit at the foot of the window where a hand expects them, sized to
+/// be hit rather than squinted at.
+fn action_bar(
+    ui: &mut egui::Ui,
+    addr: Option<&str>,
+    want_backup: &mut bool,
+    want_report: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().button_padding = Vec2::new(24.0, 12.0);
+        ui.spacing_mut().item_spacing.x = 14.0;
+        let row = 440.0;
+        ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
+        let has = addr.is_some();
+        if ui
+            .add_enabled(has, egui::Button::new(egui::RichText::new("copy address").size(14.0)))
+            .clicked()
+        {
+            if let Some(a) = addr {
+                ui.output_mut(|o| o.copied_text = a.to_string());
             }
-            if ui.button(egui::RichText::new("back up").size(13.5)).clicked() {
-                *want_backup = true;
-            }
-            if ui
-                .button(egui::RichText::new("report a bug").size(13.5))
-                .on_hover_text(
-                    "opens a GitHub issue with your machine, the app state and the recent log already filled in",
-                )
-                .clicked()
-            {
-                *want_report = true;
-            }
-        });
+        }
+        if ui
+            .add_enabled(has, egui::Button::new(egui::RichText::new("back up").size(14.0)))
+            .clicked()
+        {
+            *want_backup = true;
+        }
+        if ui
+            .button(egui::RichText::new("report a bug").size(14.0))
+            .on_hover_text(
+                "opens a GitHub issue with your machine, the app state and the recent log already filled in",
+            )
+            .clicked()
+        {
+            *want_report = true;
+        }
     });
 }
 
