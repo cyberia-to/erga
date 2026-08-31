@@ -105,7 +105,13 @@ impl ScanMiner {
         #[repr(C)]
         struct BuildP { n: u32, height: u32 }
         let bp: [u8; 8] = unsafe { std::mem::transmute(BuildP { n, height }) };
-        let tg = 64usize;
+        // Threadgroup width for the build. ERGA_BUILD_TG lets a sweep find
+        // the best value on a given chip without a rebuild.
+        let tg = std::env::var("ERGA_BUILD_TG")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|v| *v > 0 && *v <= 1024)
+            .unwrap_or(64);
         let grid = (n as usize).div_ceil(tg) * tg;
         unsafe {
             dispatch.dispatch_with_bytes(

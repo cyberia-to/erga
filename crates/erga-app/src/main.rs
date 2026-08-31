@@ -195,16 +195,17 @@ impl App {
     fn new() -> Self {
         let wallet = erga_wallet::Wallet::load_or_create();
         let balance = BalanceState::default();
+        let idx = pools::load_choice();
         let pool = pool::PoolState::default();
         if let Ok(w) = &wallet {
             balance.fetch(w.address.clone()); // show balance immediately
-            pool.fetch(w.address.clone()); // and what the pool owes us
+            pool.fetch(w.address.clone(), idx); // and what the pool owes us
         }
         App {
             miner: Miner::new(),
             balance,
             pool,
-            pool_idx: pools::load_choice(),
+            pool_idx: idx,
             wallet,
             show_backup: false,
             spin: 0.0,
@@ -224,13 +225,9 @@ impl App {
             self.miner.p.set_status("wallet unavailable");
             return;
         };
-        let pool = &pools::POOLS[self.pool_idx];
-        let addr = if self.store.solo && pools::has_ledger(self.pool_idx) {
-            format!("solo:{addr}")
-        } else {
-            addr
-        };
-        store::log(&format!("start pool={}:{} solo={}", pool.host, pool.port, self.store.solo));
+        let pool = pools::get(self.pool_idx);
+        let addr = format!("{}{addr}", pool.prefix);
+        store::log(&format!("start pool={} {}:{}", pool.label, pool.host, pool.port));
         self.session_start = Some(std::time::Instant::now());
         self.miner.start(addr, pool.host, pool.port);
     }
@@ -336,22 +333,12 @@ impl eframe::App for App {
                                 ui.selectable_value(&mut self.pool_idx, i, pl.label);
                             }
                         });
-                    // Solo is a different game on the same pool: you win a
-                    // whole block or nothing, so it only makes sense where we
-                    // know the pool speaks it.
-                    if pools::has_ledger(self.pool_idx) {
-                        let was = self.store.solo;
-                        ui.checkbox(&mut self.store.solo, egui::RichText::new("solo").size(10.5));
-                        if self.store.solo != was {
-                            self.store.save();
-                            if running {
-                                self.end();
-                                self.begin();
-                            }
-                        }
-                    }
                     if self.pool_idx != prev {
                         pools::save_choice(self.pool_idx);
+                        // the new pool keeps its own books
+                        if let Some(a) = self.address().map(|a| a.to_string()) {
+                            self.pool.fetch(a, self.pool_idx);
+                        }
                         if running {
                             // hop pools live: land on the new door mid-flight
                             self.end();
@@ -366,7 +353,7 @@ impl eframe::App for App {
                 if self.last_balance.elapsed().as_secs() >= 30 {
                     self.balance.fetch(addr.clone());
                     if pools::has_ledger(self.pool_idx) {
-                        self.pool.fetch(addr);
+                        self.pool.fetch(addr, self.pool_idx);
                     }
                     self.last_balance = std::time::Instant::now();
                 }
@@ -377,6 +364,7 @@ impl eframe::App for App {
             let (cpu, mem, net_kbs) = (self.sys.cpu, self.sys.mem, self.sys.down_kbs);
             let on_chain = self.balance.inner.lock().unwrap().erg;
             let has_ledger = pools::has_ledger(self.pool_idx);
+            let solo = pools::get(self.pool_idx).solo;
             let addr_opt = self.address().map(|a| a.to_string());
             let mut want_backup = false;
             let mut start_stop = false;
@@ -424,7 +412,7 @@ impl eframe::App for App {
                     ui.add_space(gap);
                     panel_frame(ui, rw, 0.0, |ui| {
                         let pi = self.pool.inner.lock().unwrap();
-                        payout_panel(ui, &pi, has_ledger, on_chain, mhs, running, &p);
+                        payout_panel(ui, &pi, has_ledger, solo, on_chain, mhs, running, &p);
                     });
                 });
 
@@ -475,7 +463,7 @@ impl eframe::App for App {
                                 ui.add_space(12.0);
                                 panel_frame(ui, col_w, 0.0, |ui| {
                                     let pi = self.pool.inner.lock().unwrap();
-                                    payout_panel(ui, &pi, has_ledger, on_chain, mhs, running, &p);
+                                    payout_panel(ui, &pi, has_ledger, solo, on_chain, mhs, running, &p);
                                 });
                                 ui.add_space(14.0);
                                 if let Some(addr) = &addr_opt {
@@ -499,59 +487,6 @@ impl eframe::App for App {
                     self.end();
                 } else {
                     self.begin();
-                }
-            }
-
-            // ── first run: say the honest things before anything else ──
-            if !self.store.seen_intro {
-                let mut go = false;
-                egui::Window::new("welcome to erga")
-                    .collapsible(false)
-                    .resizable(false)
-                    .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
-                    .show(ctx, |ui| {
-                        ui.set_max_width(430.0);
-                        ui.label(
-                            egui::RichText::new(
-                                "erga mines ERGO on your Mac's GPU and pays into a wallet it \
-                                 just generated for you. Four things are worth knowing before \
-                                 you press the crystal.",
-                            )
-                            .color(CREAM)
-                            .size(12.5),
-                        );
-                        ui.add_space(12.0);
-                        for (head, body) in [
-                            ("it earns little",
-                             "a few ERG a month — a couple of dollars. The app shows the live \
-                              projection in ERG and in dollars, so you never have to guess."),
-                            ("it needs memory",
-                             "the mining table is about 7 GB and is rebuilt every block. 8 GB \
-                              Macs cannot run it; 16 GB works with little room to spare."),
-                            ("5% funds development",
-                             "one share in twenty is mined for the project, on its own pool \
-                              session. The count is always on screen, and you can change or \
-                              switch it off — see the README."),
-                            ("back up your seed",
-                             "the 15 words behind 'back up' are the wallet. Nobody can recover \
-                              them for you."),
-                        ] {
-                            caps(ui, head, 10.0, MINT);
-                            ui.add_space(2.0);
-                            ui.label(egui::RichText::new(body).color(MUTE).size(11.5));
-                            ui.add_space(10.0);
-                        }
-                        ui.separator();
-                        ui.add_space(8.0);
-                        ui.horizontal(|ui| {
-                            if ui.button("let's mine").clicked() {
-                                go = true;
-                            }
-                        });
-                    });
-                if go {
-                    self.store.seen_intro = true;
-                    self.store.save();
                 }
             }
 
@@ -778,6 +713,7 @@ fn payout_panel(
     ui: &mut egui::Ui,
     pi: &pool::PoolInfo,
     has_ledger: bool,
+    solo: bool,
     on_chain: Option<f64>,
     mhs: f64,
     running: bool,
@@ -802,7 +738,7 @@ fn payout_panel(
         ui.add_space(3.0);
         caps(ui, "track earnings on its site", 9.5, MUTE);
     } else if pi.ok {
-        payout_game(ui, pi, mhs, running);
+        payout_game(ui, pi, mhs, running, solo);
     } else {
         caps(ui, "reading the pool ledger…", 9.5, MUTE);
     }
@@ -893,7 +829,47 @@ fn erg_per_day(pi: &pool::PoolInfo, local_mhs: f64) -> Option<f64> {
 
 /// The payout game — segmented bar, pulsing tip, the score and the honest
 /// countdown, then the ledger rows. One source for both layouts.
-fn payout_game(ui: &mut egui::Ui, pi: &pool::PoolInfo, local_mhs: f64, running: bool) {
+fn payout_game(
+    ui: &mut egui::Ui,
+    pi: &pool::PoolInfo,
+    local_mhs: f64,
+    running: bool,
+    solo: bool,
+) {
+    // Solo has no shared payout to fill: you find a whole block or you find
+    // nothing. The bar would be a lie, so it is replaced by the only number
+    // that means anything there — how long a block takes at this rate.
+    if solo {
+        caps(ui, "solo — a whole block, or nothing", 10.0, MINT);
+        ui.add_space(6.0);
+        let rate = pi.hashrate_24h_mhs.max(local_mhs) * 1e6;
+        if pi.difficulty > 0.0 && rate > 1e4 {
+            let days = pi.difficulty / rate / 86_400.0;
+            let mut job = egui::text::LayoutJob::default();
+            job.append(
+                &if days >= 1.0 { format!("{days:.0}") } else { format!("{:.1}", days * 24.0) },
+                0.0,
+                egui::TextFormat { font_id: play_bold(20.0), color: MINT, ..Default::default() },
+            );
+            ui.label(job);
+            caps(
+                ui,
+                if days >= 1.0 { "days per block, on average" } else { "hours per block, on average" },
+                9.0,
+                MUTE,
+            );
+            ui.add_space(4.0);
+            caps(ui, &format!("the block pays {:.0} erg", pool::BLOCK_REWARD_ERG), 9.0, MUTE);
+        } else {
+            caps(ui, "mine to see the odds at your rate", 9.0, MUTE);
+        }
+        ui.add_space(8.0);
+        card_row(ui, "credited", &format!("{:.5} ERG", pi.balance_erg.max(0.0)));
+        if pi.paid_erg > 0.0 {
+            card_row(ui, "paid out", &format!("{:.5} ERG", pi.paid_erg));
+        }
+        return;
+    }
     let earned = pi.balance_erg + pi.pending_erg;
     let toward = (earned / pi.threshold_erg) as f32;
 
@@ -942,8 +918,8 @@ fn payout_game(ui: &mut egui::Ui, pi: &pool::PoolInfo, local_mhs: f64, running: 
         };
         card_row(ui, "a month at this pace", &format!("≈ {month:.2} ERG{usd}"));
     }
-    card_row(ui, "maturing", &format!("{:.5} ERG", pi.pending_erg));
-    card_row(ui, "credited", &format!("{:.5} ERG", pi.balance_erg));
+    card_row(ui, "maturing", &format!("{:.5} ERG", pi.pending_erg.max(0.0)));
+    card_row(ui, "credited", &format!("{:.5} ERG", pi.balance_erg.max(0.0)));
     if pi.paid_erg > 0.0 {
         card_row(ui, "paid out", &format!("{:.5} ERG", pi.paid_erg));
     }

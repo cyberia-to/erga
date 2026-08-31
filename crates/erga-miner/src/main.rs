@@ -13,6 +13,19 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()).unwrap_or("difftest") {
         "difftest" => difftest(),
+        // Time one full table build — the cost paid at every block change.
+        "buildbench" => {
+            let height: u32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1_862_800);
+            let n = autolykos::calc_big_n(2, height);
+            let m = autolykos::big_m();
+            let gpu = Gpu::open().expect("open gpu");
+            println!("device: {}  n: {n}  table: {:.2} GiB", gpu.name(), n as f64 * 32.0 / (1u64 << 30) as f64);
+            let t0 = std::time::Instant::now();
+            match erga_miner::gpu::ScanMiner::new_gpu_built(gpu, n, height, &m) {
+                Ok(_) => println!("build: {:.2} s", t0.elapsed().as_secs_f64()),
+                Err(e) => println!("build FAILED: {e}"),
+            }
+        }
         "mine" => {
             let host = args.get(2).cloned().unwrap_or_else(|| "ergo.herominers.com".into());
             let port: u16 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(1180);

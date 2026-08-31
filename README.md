@@ -127,9 +127,12 @@ Other things it does because they matter more than they look:
 - **re-verifies every share on the CPU** before submitting
 - **auto-reconnects** — a dropped pool or a network blip retries instead of
   ending the session
-- **pool chooser** — herominers (default: 0.5 ERG payout floor, the lowest
-  verified, plus an in-app ledger) with 13 regional endpoints, and 2miners
-  (admitted only after a live accepted share through this client)
+- **pool chooser** — herominers (default: 0.5 ERG floor, the lowest verified)
+  and 2miners, each with a solo variant, and each showing its own ledger
+  inside the app. A pool is listed only after this client has held a real
+  conversation with it; regions are absent on purpose, since every pool
+  routes you to its own nearest server and latency costs at most a stale
+  share
 - **stores the seed in a 0600 file**, not the Keychain — Keychain prompts on
   every rebuild because ad-hoc signatures change
 - **remembers across restarts** — all-time shares and hashes survive quitting,
@@ -137,8 +140,9 @@ Other things it does because they matter more than they look:
 - **shows an effective hashrate** next to the live one: the same hashes
   averaged over the whole session, so the seconds spent rebuilding the table
   each block are counted honestly
-- **solo, if you want the lottery** — the `solo` switch mines to herominers'
-  solo endpoint: whole blocks or nothing, no shared payout
+- **solo, if you want the lottery** — pick a `· solo` entry in the chooser:
+  whole blocks or nothing, and the payout bar is replaced by the only number
+  that means anything there — how long a block takes at your rate
 - **keeps a log** at `~/Library/Logs/erga/erga.log`, one click away under
   `logs`, so a problem can be reported with evidence
 
