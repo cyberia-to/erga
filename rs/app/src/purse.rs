@@ -1,11 +1,33 @@
 //! The wallet's face: the address, the action bar at the foot of the window,
 //! and the seed screen — which takes the whole window rather than hovering
 //! over the app as a dialog would.
+//!
+//! Rows of buttons are centred from a *measured* width. egui lays a button out
+//! as its text plus twice the button padding, with item spacing between
+//! siblings; guessing that total is what leaves a row looking a few pixels off
+//! centre, which the eye notices even when it cannot say why.
 
 use eframe::egui;
 use egui::{Color32, FontId, Sense, Stroke, Vec2};
 
 use crate::theme::caps;
+
+/// The exact width a row of buttons will occupy. Measure the spacing you are
+/// about to use *after* setting it, or the answer describes a different row.
+fn row_width(ui: &egui::Ui, labels: &[&str], size: f32) -> f32 {
+    let pad = ui.spacing().button_padding.x;
+    let gap = ui.spacing().item_spacing.x;
+    labels
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let g = ui
+                .painter()
+                .layout_no_wrap((*l).to_string(), egui::FontId::proportional(size), MINT);
+            g.size().x + pad * 2.0 + if i > 0 { gap } else { 0.0 }
+        })
+        .sum()
+}
 use crate::{AMBER, CORAL, CREAM, CTRL_H, MINT, MUTE};
 
 /// The wallet strip — identity, present but out of the game's way.
@@ -46,7 +68,7 @@ pub fn action_bar(
     ui.horizontal(|ui| {
         ui.spacing_mut().button_padding = Vec2::new(24.0, 12.0);
         ui.spacing_mut().item_spacing.x = 14.0;
-        let row = 440.0;
+        let row = row_width(ui, &["copy address", "back up", "report a bug"], 14.0);
         ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
         let has = addr.is_some();
         if ui
@@ -79,8 +101,8 @@ pub fn action_bar(
 ///
 /// Not a modal: a modal invites you to keep working with your wallet's keys
 /// sitting behind a dialog. This takes the window, says the words are on the
-/// clipboard, and takes itself away after ten seconds.
-pub fn backup_screen(ui: &mut egui::Ui, seed: Option<&str>, secs_left: f32) -> bool {
+/// clipboard, and stays until you dismiss it.
+pub fn backup_screen(ui: &mut egui::Ui, seed: Option<&str>) -> bool {
     let mut done = false;
     ui.add_space(26.0);
     // the notice, at the top, where a notification belongs
@@ -141,7 +163,7 @@ pub fn backup_screen(ui: &mut egui::Ui, seed: Option<&str>, secs_left: f32) -> b
         ui.add_space(26.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().button_padding = Vec2::new(22.0, 11.0);
-            let row = 250.0;
+            let row = row_width(ui, &["I've written them down"], 13.5);
             ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
             if ui
                 .button(egui::RichText::new("I've written them down").size(13.5))
@@ -150,13 +172,6 @@ pub fn backup_screen(ui: &mut egui::Ui, seed: Option<&str>, secs_left: f32) -> b
                 done = true;
             }
         });
-        ui.add_space(12.0);
-        caps(
-            ui,
-            &format!("hiding in {:.0}", secs_left.ceil()),
-            9.5,
-            MUTE.gamma_multiply(0.9),
-        );
     });
     done
 }

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.16.0] — 2026-08-31
+
+### Added
+
+- Two synthesised sounds, no samples and no licence: a soft wooden pluck when
+  the crystal is pressed, and a two-note bird when a share is accepted —
+  something small arriving, which is what a share is.
+- The crystal dips and springs back over ~220 ms when pressed.
+
+### Fixed
+
+- The seed screen's ten-second timer, which a `git checkout` during the module
+  split had quietly restored.
+- Rows of buttons are centred from a **measured** width rather than a guessed
+  constant. The action bar now measures 0 px off centre.
+- Starting to mine no longer jerks the window upward: the start hint's row is
+  reserved whether or not it is drawn.
+
+
 ## [0.15.0] — 2026-08-31
 
 ### Changed

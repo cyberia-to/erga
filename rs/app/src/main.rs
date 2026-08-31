@@ -9,6 +9,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod balance;
+mod chime;
 mod miner;
 mod panels;
 mod purse;
@@ -46,6 +47,8 @@ pub const MUTE: Color32 = Color32::from_rgb(90, 110, 100);
 /// `interact_size` and a bare shape from whatever you allocate, so matching
 /// the two by formula does not hold — pinning both to one number does.
 pub const CTRL_H: f32 = 23.0;
+/// The height the start hint occupies, reserved even when it is not drawn.
+pub const HINT_H: f32 = 16.0;
 
 fn main() -> eframe::Result<()> {
     // `erga mine [host] [port] [address]` mines headless — same engine, no
@@ -122,9 +125,14 @@ struct App {
     pool: pool::PoolState,
     pool_idx: usize,
     wallet: Result<erga_wallet::Wallet, String>,
-    /// When the seed screen was opened. It closes itself: a wallet seed
-    /// should not sit on a monitor because someone walked away.
-    backup_since: Option<std::time::Instant>,
+    /// When the crystal was last pressed, for the press animation.
+    pressed_at: Option<std::time::Instant>,
+    /// Accepted shares already announced, so each is celebrated exactly once.
+    heard_shares: u64,
+    /// Whether the seed is on screen. It waits to be dismissed: a timer suits
+    /// something that appeared uninvited, but this one was opened on purpose
+    /// and is being copied onto paper, and paper is slow.
+    show_seed: bool,
     spin: f32,
     last_balance: std::time::Instant,
     sys: stats::Sys,
@@ -138,6 +146,7 @@ struct App {
 
 impl App {
     fn new() -> Self {
+        chime::ensure();
         let wallet = erga_wallet::Wallet::load_or_create();
         let balance = BalanceState::default();
         let idx = pools::load_choice();
@@ -152,7 +161,9 @@ impl App {
             pool,
             pool_idx: idx,
             wallet,
-            backup_since: None,
+            pressed_at: None,
+            heard_shares: 0,
+            show_seed: false,
             spin: 0.0,
             last_balance: std::time::Instant::now(),
             sys: stats::Sys::new(),
@@ -228,6 +239,17 @@ impl eframe::App for App {
             self.begin();
         }
         let running = self.miner.is_running();
+        // A share is the only thing here that is genuinely good news, so it is
+        // the only thing that makes a sound on its own.
+        let accepted = self.miner.p.accepted.load(std::sync::atomic::Ordering::Relaxed);
+        if accepted > self.heard_shares {
+            if self.heard_shares > 0 || accepted == 1 {
+                chime::share();
+            }
+            self.heard_shares = accepted;
+        } else if accepted < self.heard_shares {
+            self.heard_shares = accepted; // a new session restarted the count
+        }
         if running {
             self.spin += 0.01;
         }
@@ -265,19 +287,26 @@ impl eframe::App for App {
             // The seed takes the whole window while it is up: it is not a
             // dialog over the app, it is the only thing that should be on
             // screen — and it puts itself away.
-            if let Some(since) = self.backup_since {
-                const LIFE: f32 = 10.0;
-                let left = LIFE - since.elapsed().as_secs_f32();
-                if left <= 0.0 {
-                    self.backup_since = None;
-                } else {
-                    ctx.request_repaint_after(std::time::Duration::from_millis(100));
-                    let seed = self.wallet.as_ref().ok().map(|w| w.mnemonic.clone());
-                    if backup_screen(ui, seed.as_deref(), left) {
-                        self.backup_since = None;
-                    }
-                    return;
+            if self.show_seed {
+                let seed = self.wallet.as_ref().ok().map(|w| w.mnemonic.clone());
+                if backup_screen(ui, seed.as_deref()) {
+                    self.show_seed = false;
                 }
+                return;
+            }
+            // A press dips the crystal and lets it spring back over ~220 ms.
+            // Small enough to feel like contact rather than like a transition.
+            let press = self
+                .pressed_at
+                .map(|t| t.elapsed().as_secs_f32())
+                .filter(|e| *e < 0.22)
+                .map(|e| {
+                    let k = e / 0.22;
+                    1.0 - 0.06 * (1.0 - k) * (k * 18.0).cos().abs()
+                })
+                .unwrap_or(1.0);
+            if self.pressed_at.is_some() && press >= 1.0 {
+                self.pressed_at = None;
             }
             let avail_w = ui.available_width();
             ui.add_space(16.0);
@@ -413,11 +442,16 @@ impl eframe::App for App {
                 // stretches is mostly empty
                 let panel_h = (band_h - 40.0).clamp(300.0, 430.0);
 
-                if !running {
-                    ui.add_space(2.0);
+                // The hint's row is reserved whether or not it is drawn:
+                // otherwise the whole window jumps upward the moment mining
+                // starts, which reads as a glitch rather than as feedback.
+                ui.add_space(2.0);
+                if running {
+                    ui.add_space(HINT_H);
+                } else {
                     start_hint(ui);
                 }
-                ui.add_space(if running { 8.0 } else { 22.0 });
+                ui.add_space(22.0);
                 ui.horizontal(|ui| {
                     ui.add_space(side);
                     // panels are centred on the crystal, not hung from the top
@@ -438,7 +472,7 @@ impl eframe::App for App {
                         ui.add_space(34.0);
                         let (rect, resp) =
                             ui.allocate_exact_size(Vec2::new(cw, cr * 2.0), Sense::click());
-                        draw_crystal(ui, rect.center(), cr, running, self.spin, resp.hovered());
+                        draw_crystal(ui, rect.center(), cr * press, running, self.spin, resp.hovered());
                         // Mining, the crystal *is* the readout: the rate lives
                         // where the label was, because a filled crystal has
                         // already said "mining".
@@ -520,7 +554,7 @@ impl eframe::App for App {
                             Vec2::new(ui.available_width(), cr * 2.25),
                             Sense::click(),
                         );
-                        draw_crystal(ui, rect.center(), cr, running, self.spin, resp.hovered());
+                        draw_crystal(ui, rect.center(), cr * press, running, self.spin, resp.hovered());
                         ui.painter().text(
                             rect.center(),
                             Align2::CENTER_CENTER,
@@ -593,9 +627,11 @@ impl eframe::App for App {
                 if let Ok(w) = &self.wallet {
                     ui.output_mut(|o| o.copied_text = w.mnemonic.clone());
                 }
-                self.backup_since = Some(std::time::Instant::now());
+                self.show_seed = true;
             }
             if start_stop {
+                chime::press();
+                self.pressed_at = Some(std::time::Instant::now());
                 if running {
                     self.end();
                 } else {
