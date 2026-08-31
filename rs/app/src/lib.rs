@@ -6,110 +6,19 @@
 //! Max — 2.4× an RTX 3090 per watt). Watch the hashrate, the accepted
 //! shares, and your balance grow.
 
+//! erga's window, as a library. The command lives in `cli/`; this crate is
+//! what it opens.
+
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod balance;
-mod chime;
-mod cli;
-mod miner;
-mod panels;
-mod purse;
-mod theme;
-mod tray;
-mod widgets;
-mod pool;
-mod pools;
-mod store;
-mod stats;
+/// The pool the window is set to, for the command to mine to the same place.
+pub fn chosen_pool() -> (String, u16) {
+    let p = pools::get(pools::load_choice());
+    (p.host.to_string(), p.port)
+}
 
-use eframe::egui;
-use egui::{Color32, Vec2};
-
-use balance::BalanceState;
-use panels::{machine_panel, payout_panel};
-use purse::{action_bar, backup_screen, wallet_block};
-use theme::{badge, caps, load_icon, pill_toggle, play_bold, setup_fonts, setup_style};
-use widgets::{big_balance, crystal_button, human, panel_frame, start_hint};
-use miner::Miner;
-
-// Colour is a language here, not decoration. Nothing is given a colour it
-// has not earned:
-//   MINT   what you gain — earnings, hashrate, the crystal while it runs
-//   AMBER  what it costs — cpu, memory, network: the machine working for you
-//   CORAL  what is wrong — rejected shares, failures
-//   SKY    what the chain says — height, difficulty: facts you do not own
-pub const BG: Color32 = Color32::from_rgb(3, 5, 4); // near-black with a faint green cast
-pub const MINT: Color32 = Color32::from_rgb(125, 255, 196);
-pub const AMBER: Color32 = Color32::from_rgb(255, 186, 92);
-pub const CORAL: Color32 = Color32::from_rgb(255, 122, 122);
-pub const SKY: Color32 = Color32::from_rgb(126, 197, 255);
-pub const CREAM: Color32 = Color32::from_rgb(235, 245, 240);
-pub const MUTE: Color32 = Color32::from_rgb(90, 110, 100);
-/// Every pill in the header is exactly this tall. egui sizes a ComboBox from
-/// `interact_size` and a bare shape from whatever you allocate, so matching
-/// the two by formula does not hold — pinning both to one number does.
-pub const CTRL_H: f32 = 23.0;
-/// The height the start hint occupies, reserved even when it is not drawn.
-pub const HINT_H: f32 = 16.0;
-
-fn main() -> eframe::Result<()> {
-    // `erga mine [host] [port] [address]` mines headless — same engine, no
-    // window. Everything is optional: with no arguments it uses the pool you
-    // picked in the app and the wallet the app generated for you.
-    //
-    // Headless runs the engine in-process, which the GUI deliberately does
-    // not do: eframe holds an OpenGL context, and pairing that with the
-    // miner's Metal work in one process is what used to abort the app. With
-    // no window there is no second graphics API, so it is safe here.
-    let argv: Vec<String> = std::env::args().collect();
-    match argv.get(1).map(|s| s.as_str()) {
-        Some("mine") => {
-            let pool = pools::get(pools::load_choice());
-            let host = argv.get(2).cloned().unwrap_or_else(|| pool.host.to_string());
-            let port = argv.get(3).and_then(|s| s.parse().ok()).unwrap_or(pool.port);
-            let address = match argv.get(4) {
-                Some(a) => a.clone(),
-                None => match erga_wallet::Wallet::load_or_create() {
-                    Ok(w) => {
-                        println!("mining to your wallet: {}", w.address);
-                        w.address
-                    }
-                    Err(e) => {
-                        eprintln!("no address given and no wallet available: {e}");
-                        std::process::exit(1);
-                    }
-                },
-            };
-            println!("pool: {host}:{port}");
-            // Headless runs the engine in-process, which the window
-            // deliberately does not: with no window there is no second
-            // graphics API to pair with the miner's Metal work.
-            erga_miner::cli::mine(host, port, address, argv.iter().any(|a| a == "--machine"));
-            return Ok(());
-        }
-        Some("status") => {
-            cli::status();
-            return Ok(());
-        }
-        Some("link") => {
-            cli::link();
-            return Ok(());
-        }
-        Some("help" | "--help" | "-h") => {
-            cli::help();
-            return Ok(());
-        }
-        Some(other) if other.starts_with('-') || !other.is_empty() => {
-            eprintln!("unknown command `{other}`");
-            cli::help();
-            std::process::exit(1);
-        }
-        _ => {}
-    }
-    // Installed as an app, `erga` should also be a command. Costs nothing,
-    // asks nothing, and only happens from inside a bundle.
-    cli::link_quietly();
-
+/// Open the window. Returns when it closes.
+pub fn run() -> eframe::Result<()> {
     // ERGA_WIN=1600x1000 overrides the initial window size (dev/testing).
     let size = std::env::var("ERGA_WIN")
         .ok()
@@ -142,6 +51,50 @@ fn main() -> eframe::Result<()> {
         }),
     )
 }
+
+mod balance;
+mod chime;
+mod miner;
+mod panels;
+mod purse;
+mod theme;
+mod tray;
+mod widgets;
+pub mod pool;
+pub mod pools;
+pub mod store;
+mod stats;
+
+use eframe::egui;
+use egui::{Color32, Vec2};
+
+use balance::BalanceState;
+use panels::{machine_panel, payout_panel};
+use purse::{action_bar, backup_screen, wallet_block};
+use theme::{badge, caps, load_icon, pill_toggle, play_bold, setup_fonts, setup_style};
+use widgets::{big_balance, crystal_button, human, panel_frame, start_hint};
+use miner::Miner;
+
+// Colour is a language here, not decoration. Nothing is given a colour it
+// has not earned:
+//   MINT   what you gain — earnings, hashrate, the crystal while it runs
+//   AMBER  what it costs — cpu, memory, network: the machine working for you
+//   CORAL  what is wrong — rejected shares, failures
+//   SKY    what the chain says — height, difficulty: facts you do not own
+pub const BG: Color32 = Color32::from_rgb(3, 5, 4); // near-black with a faint green cast
+pub const MINT: Color32 = Color32::from_rgb(125, 255, 196);
+pub const AMBER: Color32 = Color32::from_rgb(255, 186, 92);
+pub const CORAL: Color32 = Color32::from_rgb(255, 122, 122);
+pub const SKY: Color32 = Color32::from_rgb(126, 197, 255);
+pub const CREAM: Color32 = Color32::from_rgb(235, 245, 240);
+pub const MUTE: Color32 = Color32::from_rgb(90, 110, 100);
+/// Every pill in the header is exactly this tall. egui sizes a ComboBox from
+/// `interact_size` and a bare shape from whatever you allocate, so matching
+/// the two by formula does not hold — pinning both to one number does.
+pub const CTRL_H: f32 = 23.0;
+/// The height the start hint occupies, reserved even when it is not drawn.
+pub const HINT_H: f32 = 16.0;
+
 
 
 

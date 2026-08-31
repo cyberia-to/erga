@@ -10,10 +10,12 @@ This is the explanation. The [specs](../specs/) say what it must do; the
 ## the shape of it
 
 ```
-erga.app  (rs/app — eframe/egui: draws, never mines)
-   │  spawns, reads STAT lines from stdout
-   ▼
-erga-miner  (rs/miner — its own process; all GPU work lives here)
+erga  (cli/ — one binary: window with no arguments, commands with them)
+   │
+   ├── erga_app        the window (eframe/egui: draws, never mines)
+   │      │  spawns `erga mine … --machine` — itself — and reads its stdout
+   │      ▼
+   └── erga_miner      that second process; all GPU work lives here
    │
    ├── rs/autolykos   protocol-exact reference, chain-verified
    ├── rs/pool        stratum: subscribe · authorize · notify · submit
@@ -29,8 +31,9 @@ abort the app — silently, with no Rust panic, which is what a native abort
 looks like. Split apart, the window only draws; if the miner dies the UI
 survives and says so. The cost is a pipe and a line protocol, which is cheap.
 
-The bundle therefore ships **both** binaries in `Contents/MacOS/`, and the GUI
-launches its sibling.
+The bundle ships **one** binary. The window re-invokes its own executable as
+`erga mine … --machine`, so there is no sibling to ship, to lose, or to let
+drift out of version with the window.
 
 ## what happens when you press the crystal
 
@@ -85,6 +88,7 @@ Change it with `ERGA_DONATION=off`, `ERGA_DONATION=<address>` or
 | `rs/pool` | the stratum client |
 | `rs/miner` | the engine, the Metal kernels, the headless CLI |
 | `rs/wallet` | seed, address, transaction building |
-| `rs/app` | the window |
+| `rs/app` | the window, as a library |
+| `cli/` | the command that opens it, and everything else |
 | `rs/blake-bench`, `rs/rtable-bench`, `rs/mine-bench` | the measurements that came first |
 | `packaging/` | the `.app`, the `.dmg`, and the icon as code |

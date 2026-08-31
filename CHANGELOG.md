@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.20.0] — 2026-08-31
+
+### Changed
+
+- The command moves to `cli/` at the root, where the cyberia layout puts it,
+  and `rs/*` are libraries. `erga` with no arguments opens the window; with
+  arguments it does that instead.
+- **The bundle ships one binary instead of two.** The window now spawns *its
+  own executable* as `erga mine … --machine`, so there is no sibling to ship,
+  to go missing, or to drift out of version with the window. That also
+  retires the path search that hunted for it.
+- `difftest` and `buildbench` become subcommands of `erga` rather than a
+  second binary's arguments, and `erga-pool`'s probe binary is gone.
+
+
 ## [0.19.0] — 2026-08-31
 
 ### Fixed

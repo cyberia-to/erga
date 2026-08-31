@@ -50,8 +50,14 @@ erga mine                 mine here, no window — your wallet, the pool you pic
 erga mine <host> <port> <address>
 erga status               what the pool owes you, without opening anything
 erga link                 put `erga` on your PATH
+erga difftest             prove the GPU kernel against the CPU reference
+erga buildbench           time one epoch-table build
 erga help
 ```
+
+One binary does all of it. The window spawns *itself* to mine, so the bundle
+ships a single file that cannot go missing or drift out of version with the
+window.
 
 ## which Mac, and what to expect
 
@@ -207,7 +213,8 @@ Or edit `DONATION_ADDRESS` / `DONATION_EVERY_NTH` at the top of
 
 | path | what |
 |---|---|
-| [`rs/`](rs/) | the crates — `autolykos`, `pool`, `miner`, `wallet`, `app`, and the three benches |
+| [`cli/`](cli/) | the command — `erga` opens the window, mines, reports, links itself |
+| [`rs/`](rs/) | the libraries — `autolykos`, `pool`, `miner`, `wallet`, `app`, and the three benches |
 | [`docs/`](docs/README.md) | how it works: the architecture, the mining loop, where the money is |
 | [`specs/`](specs/README.md) | what it must do: the correctness invariants and the resource contract |
 | [`packaging/`](packaging/) | the `.app`, the `.dmg`, and the icon as code |

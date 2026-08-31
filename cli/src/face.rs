@@ -4,7 +4,7 @@
 //! the name of the thing. Everything here is meant to be read at a glance:
 //! one mark, one column of keys, one column of values.
 
-use crate::{pool, pools, store};
+use erga_app::{pool, pools, store};
 
 const MARK: &str = "\x1b[38;5;121m";
 const DIM: &str = "\x1b[38;5;244m";
@@ -21,6 +21,8 @@ pub fn help() {
         ("erga mine [host] [port] [address]", "mine here, no window"),
         ("erga status", "what the pool owes you"),
         ("erga link", "put `erga` on your PATH"),
+        ("erga difftest", "prove the GPU kernel against the reference"),
+        ("erga buildbench [height]", "time one epoch-table build"),
         ("erga help", "this"),
     ] {
         println!("  {MARK}{cmd:<34}{OFF}{DIM}{what}{OFF}");

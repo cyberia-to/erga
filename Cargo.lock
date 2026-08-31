@@ -1053,7 +1053,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "erga-app"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "eframe",
  "egui",
@@ -1063,6 +1063,17 @@ dependencies = [
  "sysinfo",
  "tray-icon",
  "ureq",
+]
+
+[[package]]
+name = "erga-cli"
+version = "0.20.0"
+dependencies = [
+ "aruminium",
+ "autolykos",
+ "erga-app",
+ "erga-miner",
+ "erga-wallet",
 ]
 
 [[package]]

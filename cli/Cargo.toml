@@ -1,0 +1,16 @@
+[package]
+name = "erga-cli"
+version = "0.20.0"
+edition = "2021"
+description = "erga — the command"
+
+[[bin]]
+name = "erga"
+path = "src/main.rs"
+
+[dependencies]
+erga-app    = { path = "../rs/app" }
+erga-miner  = { path = "../rs/miner" }
+erga-wallet = { path = "../rs/wallet" }
+autolykos   = { path = "../rs/autolykos" }
+aruminium   = { path = "../../honeycrisp/aruminium" }

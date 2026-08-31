@@ -8,10 +8,6 @@ description = "GPU-exact Autolykos v2 miner — differential-tested against the 
 name = "erga_miner"
 path = "src/lib.rs"
 
-[[bin]]
-name = "erga-miner"
-path = "src/main.rs"
-
 [dependencies]
 autolykos   = { path = "../autolykos" }
 blake-bench = { path = "../blake-bench" }

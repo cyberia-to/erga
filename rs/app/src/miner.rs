@@ -38,20 +38,11 @@ impl Miner {
         self.p.running.load(Ordering::Relaxed)
     }
 
-    /// Locate the bundled `erga-miner` binary. In a packaged .app it sits next
-    /// to this executable in `Contents/MacOS`; in a dev build it is the sibling
-    /// artifact in the same `target/<profile>` directory.
+    /// The miner is this same binary, re-invoked as `erga mine … --machine`.
+    /// One file rather than a pair that has to be kept in step, and it cannot
+    /// go missing from a bundle or drift out of version with the window.
     fn miner_bin() -> std::path::PathBuf {
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                let cand = dir.join("erga-miner");
-                if cand.exists() {
-                    return cand;
-                }
-            }
-        }
-        // last resort: rely on PATH
-        std::path::PathBuf::from("erga-miner")
+        std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("erga"))
     }
 
     /// Start mining to the chosen pool under `address`.

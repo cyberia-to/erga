@@ -6,6 +6,7 @@ members = [
     "rs/miner",
     "rs/wallet",
     "rs/app",
+    "cli",
     "rs/blake-bench",
     "rs/rtable-bench",
     "rs/mine-bench",
