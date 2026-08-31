@@ -140,7 +140,7 @@ leaves the machine.
 | stratum client | live shares **accepted** by herominers and by 2miners |
 | wallet | ergo-lib, the reference wallet: BIP39 → `m/44'/429'/0'/0/0` → P2PK |
 | balance + ledger | public explorer plus the pool's per-address API |
-| tests | 14 passing (`cargo test --workspace`) |
+| tests | 19 passing (`cargo test --workspace`) |
 
 ### the things that matter more than they look
 
@@ -167,6 +167,19 @@ fee; only the accounting changes, so whoever solves a block keeps it instead of
 sharing every one. The payout bar is replaced by the number that means
 something there — how long a block takes at your rate. (Solo against *your own
 node* is a different thing, and erga does not do it yet.)
+
+**It pays where you say.** `change address` takes any mainnet Ergo address, so
+someone who already mines is paid where they already get paid. It is checked as
+it is typed — ergo-lib parses it, so the encoding's checksum catches a single
+wrong character, and a testnet or script address is refused with the reason.
+The window, the tray, the ledger and `erg status` all read that one address.
+erga's own wallet stays where it is, and one button puts it back.
+
+**It sounds like an object.** The two sounds are physics, not samples: a burst
+of contact noise poured through the resonant modes of a body — a fingertip on a
+wooden bar, a drop of water into a bowl. Each is rendered as three slightly
+different strikes and played in rotation, because nothing in nature repeats
+exactly.
 
 **It is easy to report.** `report a bug` opens a GitHub issue pre-filled with
 your erga version, macOS, chip, memory, pool, live state and the last 40 log
@@ -234,7 +247,7 @@ Apple Silicon, macOS 14+, Rust stable, and a sibling checkout of honeycrisp:
 ```
 git clone https://github.com/cyberia-to/honeycrisp ../honeycrisp
 cargo build --release           # needs RUSTC_BOOTSTRAP=1
-cargo test --workspace          # 14 tests
+cargo test --workspace          # 19 tests
 nu packaging/bundle.nu          # → packaging/dist/erga.app + the .dmg
 ```
 

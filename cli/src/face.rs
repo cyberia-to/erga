@@ -43,8 +43,8 @@ fn row(key: &str, val: &str) {
 pub fn status() {
     let idx = pools::load_choice();
     let pl = pools::get(idx);
-    let addr = match erga_wallet::Wallet::load_or_create() {
-        Ok(w) => w.address,
+    let addr = match erga_app::payout_address() {
+        Ok(a) => a,
         Err(e) => {
             eprintln!("no wallet: {e}");
             std::process::exit(1);

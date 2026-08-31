@@ -17,6 +17,16 @@ pub fn chosen_pool() -> (String, u16) {
     (p.host.to_string(), p.port)
 }
 
+/// The address the pool pays, for a front-end with no window open: the one
+/// pasted in the window if there is one, else the wallet erga generated. The
+/// terminal and the window must never disagree about who gets paid.
+pub fn payout_address() -> Result<String, String> {
+    if let Some(a) = store::Store::load().payout {
+        return Ok(a);
+    }
+    erga_wallet::Wallet::load_or_create().map(|w| w.address)
+}
+
 /// Open the window. Returns when it closes.
 pub fn run() -> eframe::Result<()> {
     // ERGA_WIN=1600x1000 overrides the initial window size (dev/testing).
@@ -126,6 +136,9 @@ struct App {
     /// something that appeared uninvited, but this one was opened on purpose
     /// and is being copied onto paper, and paper is slow.
     show_seed: bool,
+    /// The payout-address screen, and what is being typed into it.
+    show_address: bool,
+    address_input: String,
     spin: f32,
     last_balance: std::time::Instant,
     sys: stats::Sys,
@@ -155,12 +168,23 @@ impl App {
             pool_idx: idx,
             wallet,
             eff_smooth: None,
-            was_focused: true,
+            // False, so the first focused frame counts as *gaining* focus and
+            // the click that opened the window is swallowed with every other
+            // activating click. Starting at true left the launch frames
+            // unguarded: a pointer resting where a button happens to appear
+            // pressed it before the window had finished opening.
+            was_focused: false,
             tray: None,
             tray_tried: false,
             pressed_at: None,
             heard_shares: 0,
             show_seed: false,
+            // ERGA_SCREEN=address opens straight onto a screen that otherwise
+            // takes a button press to reach — the same kind of knob as
+            // ERGA_WIN, so a layout can be photographed and measured without
+            // steering a mouse at it.
+            show_address: std::env::var("ERGA_SCREEN").is_ok_and(|v| v == "address"),
+            address_input: String::new(),
             spin: 0.0,
             last_balance: std::time::Instant::now(),
             sys: stats::Sys::new(),
@@ -221,8 +245,47 @@ impl App {
         std::env::var("ERGA_AUTOSTART").map(|v| v != "0").unwrap_or(false)
     }
 
+    /// The address the pool pays. A pasted one wins over the wallet erga
+    /// generated: someone who already mines has an address already, and this
+    /// app has no business insisting on being their wallet too.
+    ///
+    /// Everything downstream — the miner's argument, the ledger query, the
+    /// address under the crystal — reads this one function, so there is no
+    /// second place for the two to disagree.
     fn address(&self) -> Option<&str> {
+        if let Some(a) = self.store.payout.as_deref() {
+            return Some(a);
+        }
         self.wallet.as_ref().ok().map(|w| w.address.as_str())
+    }
+
+    /// True when the pool is paying somewhere the seed here cannot spend.
+    fn payout_is_external(&self) -> bool {
+        self.store.payout.is_some()
+    }
+
+    /// Point the pool at a different address, or back at erga's own wallet.
+    ///
+    /// Mining restarts when it is running. The address is what the miner
+    /// authorizes its session with, and a pool credits the address that
+    /// authorized the connection — so a change that did not restart would go
+    /// on paying the old one while this window claimed otherwise. The cost is
+    /// one epoch-table rebuild, which is the honest price.
+    fn set_payout(&mut self, addr: Option<String>) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let was_running = self.miner.p.running.load(Relaxed);
+        store::log(&format!(
+            "payout address -> {}",
+            addr.as_deref().unwrap_or("erga's own wallet")
+        ));
+        self.store.payout = addr;
+        self.store.save();
+        self.show_address = false;
+        self.address_input.clear();
+        if was_running {
+            self.end();
+            self.begin();
+        }
     }
 }
 
@@ -347,6 +410,34 @@ impl eframe::App for App {
                 let seed = self.wallet.as_ref().ok().map(|w| w.mnemonic.clone());
                 if backup_screen(ui, seed.as_deref()) {
                     self.show_seed = false;
+                }
+                return;
+            }
+            if self.show_address {
+                let generated = self.wallet.as_ref().ok().map(|w| w.address.clone());
+                let current = self.address().map(|a| a.to_string());
+                let external = self.payout_is_external();
+                let mut input = std::mem::take(&mut self.address_input);
+                let act = purse::address_screen(
+                    ui,
+                    &mut input,
+                    current.as_deref(),
+                    generated.as_deref(),
+                    external,
+                );
+                self.address_input = input;
+                match act {
+                    purse::AddressAction::None => {}
+                    purse::AddressAction::Use(a) => {
+                        self.set_payout(Some(a));
+                    }
+                    purse::AddressAction::UseGenerated => {
+                        self.set_payout(None);
+                    }
+                    purse::AddressAction::Cancel => {
+                        self.show_address = false;
+                        self.address_input.clear();
+                    }
                 }
                 return;
             }
@@ -479,6 +570,7 @@ impl eframe::App for App {
             let addr_opt = self.address().map(|a| a.to_string());
             let mut want_backup = false;
             let mut want_report = false;
+            let mut want_address = false;
             let mut start_stop = false;
 
             let wide = avail_w >= 1000.0;
@@ -582,7 +674,7 @@ impl eframe::App for App {
                 // the address, then the bar hard against the bottom edge
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                     ui.add_space(24.0);
-                    action_bar(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
+                    action_bar(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report, &mut want_address);
                 });
             } else {
                 // ── narrow: the same organs, stacked on one axis ──────
@@ -605,7 +697,7 @@ impl eframe::App for App {
                         ui.add_space(16.0);
                         wallet_block(ui, addr_opt.as_deref());
                         ui.add_space(14.0);
-                        action_bar(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
+                        action_bar(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report, &mut want_address);
                         ui.add_space(18.0);
 
                         ui.horizontal(|ui| {
@@ -661,6 +753,10 @@ impl eframe::App for App {
                     human(self.store.hashed + p.hashed.load(Relaxed)),
                 );
                 store::report_bug(&state);
+            }
+            if want_address {
+                self.address_input.clear();
+                self.show_address = true;
             }
             if want_backup {
                 // Copy on open: the words are wanted *somewhere else*, and a

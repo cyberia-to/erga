@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.26.0] — 2026-08-31
+
+### Added
+
+- **A payout address you choose.** `change address` in the action bar takes any
+  mainnet Ergo address, so someone who already mines can be paid where they
+  already get paid. It is checked as it is typed — ergo-lib parses it, so the
+  encoding's own checksum catches a single changed character, and a testnet or
+  script address is refused with the reason. The window, the tray, the ledger
+  query and `erg status` all read the same one address, and mining restarts on
+  a change, because a pool credits whoever authorized the session.
+
+### Changed
+
+- **The sounds are modelled as bodies, not as tones.** Adding sine partials
+  and fading them out is why an app sounds like a tone generator; a real object
+  is a body that rings when something hits it. Both sounds are now a burst of
+  contact noise poured through resonators — a fingertip on a wooden bar, and a
+  drop of water into a bowl that rings from the splash. Each is rendered as
+  three slightly different strikes, played in rotation, because nothing in
+  nature repeats exactly and an identical sample is what reads as *machine*.
+
+### Fixed
+
+- **A click that only woke the window could press a button.** The guard against
+  this started life assuming the window already had focus, which left the
+  launch frames unguarded: a pointer resting where a button appears pressed it
+  before the window had finished opening. Caught while testing this release —
+  it silently reset a payout address and started mining.
+
+
 ## [0.25.0] — 2026-08-31
 
 ### Fixed

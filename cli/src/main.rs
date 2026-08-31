@@ -24,10 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let port = argv.get(3).and_then(|s| s.parse().ok()).unwrap_or(port);
             let address = match argv.get(4) {
                 Some(a) => a.clone(),
-                None => match erga_wallet::Wallet::load_or_create() {
-                    Ok(w) => {
-                        println!("mining to your wallet: {}", w.address);
-                        w.address
+                None => match erga_app::payout_address() {
+                    Ok(a) => {
+                        println!("mining to: {a}");
+                        a
                     }
                     Err(e) => {
                         eprintln!("no address given and no wallet available: {e}");

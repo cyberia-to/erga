@@ -46,6 +46,32 @@ impl Wallet {
     }
 }
 
+/// Check an address someone pasted, and hand back the clean form.
+///
+/// A pool pays to a key, so a payout address has to be a mainnet P2PK. Saying
+/// so here costs a second; finding out from the pool means a day of mining
+/// credited to nothing. ergo-lib does the real work — the encoding carries a
+/// checksum and a network prefix, so a typo and a testnet address both fail.
+pub fn validate_payout_address(s: &str) -> Result<String, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("paste an address".into());
+    }
+    let addr = AddressEncoder::new(NetworkPrefix::Mainnet)
+        .parse_address_from_str(s)
+        .map_err(|_| {
+            if s.starts_with('3') {
+                "that is a testnet address".to_string()
+            } else {
+                "not a valid Ergo address".to_string()
+            }
+        })?;
+    match addr {
+        Address::P2Pk(_) => Ok(s.to_string()),
+        _ => Err("a pool pays to a P2PK address — it starts with 9".into()),
+    }
+}
+
 fn seed_path() -> Result<PathBuf, String> {
     let home = std::env::var("HOME").map_err(|_| "no HOME".to_string())?;
     Ok(PathBuf::from(home).join("Library/Application Support/ai.cyber.erga/seed"))
@@ -96,6 +122,27 @@ fn derive_p2pk_address(phrase: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn payout_address_accepts_a_real_one_and_refuses_the_rest() {
+        // a live mainnet P2PK
+        let good = "9gm4b1ZU3bSdnxFpXTQtpAqbDGB8FcwVS3vn43nxnwdj1H6mN8r";
+        assert_eq!(validate_payout_address(&format!("  {good}  ")).unwrap(), good);
+
+        // one character changed: the checksum catches it
+        let typo = "9gm4b1ZU3bSdnxFpXTQtpAqbDGB8FcwVS3vn43nxnwdj1H6mN8q";
+        assert!(validate_payout_address(typo).is_err(), "a typo must not pass");
+
+        for bad in ["", "   ", "not an address", "0x1234abcd"] {
+            assert!(validate_payout_address(bad).is_err(), "accepted {bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_generated_wallet_validates_as_a_payout_address() {
+        let w = Wallet::generate().unwrap();
+        assert_eq!(validate_payout_address(&w.address).unwrap(), w.address);
+    }
 
     #[test]
     fn generated_address_is_mainnet_p2pk() {

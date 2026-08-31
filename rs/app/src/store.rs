@@ -131,6 +131,9 @@ pub struct Store {
     pub hashed: u64,
     pub seen_intro: bool,
     pub solo: bool,
+    /// Where the pool should pay, when that is not the wallet erga made.
+    /// Someone who already mines has an address already.
+    pub payout: Option<String>,
 }
 
 fn path() -> Option<PathBuf> {
@@ -153,6 +156,7 @@ impl Store {
             hashed: n("hashed"),
             seen_intro: b("seen_intro"),
             solo: b("solo"),
+            payout: v.get("payout").and_then(|x| x.as_str()).map(str::to_string),
         }
     }
 
@@ -172,6 +176,7 @@ impl Store {
             "hashed": self.hashed + s_hashed,
             "seen_intro": self.seen_intro,
             "solo": self.solo,
+            "payout": self.payout,
         });
         let _ = std::fs::write(p, v.to_string());
     }

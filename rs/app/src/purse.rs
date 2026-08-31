@@ -30,6 +30,11 @@ fn row_width(ui: &egui::Ui, labels: &[&str], size: f32) -> f32 {
 }
 use crate::{AMBER, CORAL, CREAM, CTRL_H, MINT};
 
+/// The height the action row at the foot of the window occupies, button and
+/// margin together. Screens that centre their content have to leave room for
+/// it, or they centre against a space they do not actually have.
+const ACTION_ROW_H: f32 = 70.0;
+
 /// The wallet strip — identity, present but out of the game's way.
 /// The wallet, directly under the button that fills it: the address large
 /// enough to read across a room, and the two things you actually do with it.
@@ -63,11 +68,16 @@ pub fn action_bar(
     addr: Option<&str>,
     want_backup: &mut bool,
     want_report: &mut bool,
+    want_address: &mut bool,
 ) {
     ui.horizontal(|ui| {
         ui.spacing_mut().button_padding = Vec2::new(24.0, 12.0);
         ui.spacing_mut().item_spacing.x = 14.0;
-        let row = row_width(ui, &["copy address", "back up", "report a bug"], 14.0);
+        let row = row_width(
+            ui,
+            &["copy address", "change address", "back up", "report a bug"],
+            14.0,
+        );
         ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
         let has = addr.is_some();
         if ui
@@ -77,6 +87,13 @@ pub fn action_bar(
             if let Some(a) = addr {
                 ui.output_mut(|o| o.copied_text = a.to_string());
             }
+        }
+        if ui
+            .button(egui::RichText::new("change address").size(14.0))
+            .on_hover_text("pay a different Ergo address — the one you already mine to")
+            .clicked()
+        {
+            *want_address = true;
         }
         if ui
             .add_enabled(has, egui::Button::new(egui::RichText::new("back up").size(14.0)))
@@ -94,6 +111,144 @@ pub fn action_bar(
             *want_report = true;
         }
     });
+}
+
+/// What the payout-address screen decided this frame.
+pub enum AddressAction {
+    /// still open
+    None,
+    /// pay here from now on — already validated
+    Use(String),
+    /// go back to the wallet erga generated
+    UseGenerated,
+    Cancel,
+}
+
+/// Where the pool pays. Someone who already mines has an address; erga should
+/// take it rather than insist on being their wallet.
+///
+/// The address is checked as it is typed, so the answer arrives before the
+/// button is pressed rather than after a day of mining credited to nothing.
+pub fn address_screen(
+    ui: &mut egui::Ui,
+    input: &mut String,
+    current: Option<&str>,
+    generated: Option<&str>,
+    external: bool,
+) -> AddressAction {
+    let mut action = AddressAction::None;
+    let check = erga_wallet::validate_payout_address(input);
+    let empty = input.trim().is_empty();
+
+    // Centre the block between the top of the window and the action row, the
+    // way the main screen centres its crystal. A short screen pinned to the
+    // top with a void under it reads as unfinished.
+    let h = ui.available_height();
+    let content = if external { 320.0 } else { 250.0 };
+    ui.add_space(((h - content - ACTION_ROW_H) / 2.0).max(16.0));
+    ui.vertical_centered(|ui| {
+        caps(ui, "where the pool pays", 13.0, CREAM);
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new(if external {
+                "the pool is paying an address you pasted. erga's own wallet is untouched."
+            } else {
+                "the pool pays the wallet erga made for you. paste another to be paid there instead."
+            })
+            .color(CREAM.gamma_multiply(0.75))
+            .size(13.0),
+        );
+
+        // What is in force, shown rather than loaded into the field: a
+        // pre-filled box has to be emptied before it can be pasted into,
+        // which is work for every user to save one rare case.
+        ui.add_space(18.0);
+        caps(ui, "now paying", 9.5, CREAM.gamma_multiply(0.45));
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(current.unwrap_or("—"))
+                .monospace()
+                .size(12.0)
+                .color(if external { AMBER } else { CREAM.gamma_multiply(0.7) }),
+        );
+
+        ui.add_space(20.0);
+        let w = (ui.available_width() * 0.66).clamp(360.0, 720.0);
+        let field = ui.add_sized(
+            Vec2::new(w, CTRL_H),
+            egui::TextEdit::singleline(input)
+                .font(egui::FontId::monospace(14.0))
+                .hint_text("paste an Ergo address"),
+        );
+        // The field is why this screen exists — put the caret in it.
+        if !field.has_focus() && ui.memory(|m| m.focused().is_none()) {
+            field.request_focus();
+        }
+
+        ui.add_space(10.0);
+        // One line that is always there, so the layout never jumps: it says
+        // what is wrong, or that nothing is.
+        let (msg, colour) = match (&check, empty) {
+            (_, true) => (
+                "cancel keeps the address above".to_string(),
+                CREAM.gamma_multiply(0.5),
+            ),
+            (Ok(_), _) => ("a valid Ergo address".to_string(), MINT),
+            (Err(e), _) => (e.clone(), CORAL),
+        };
+        ui.label(egui::RichText::new(msg).color(colour).size(12.0));
+
+        if external {
+            if let Some(g) = generated {
+                ui.add_space(16.0);
+                caps(ui, "erga's own wallet", 9.5, CREAM.gamma_multiply(0.45));
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(g)
+                        .monospace()
+                        .size(11.5)
+                        .color(CREAM.gamma_multiply(0.55)),
+                );
+            }
+        }
+    });
+
+    // The way out sits where every other action sits.
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+        ui.add_space(24.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().button_padding = Vec2::new(24.0, 12.0);
+            ui.spacing_mut().item_spacing.x = 14.0;
+            let mut labels = vec!["pay here", "cancel"];
+            if external {
+                labels.insert(1, "use erga's wallet");
+            }
+            let row = row_width(ui, &labels, 14.0);
+            ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
+            if ui
+                .add_enabled(
+                    check.is_ok(),
+                    egui::Button::new(egui::RichText::new("pay here").size(14.0)),
+                )
+                .clicked()
+            {
+                if let Ok(a) = &check {
+                    action = AddressAction::Use(a.clone());
+                }
+            }
+            if external
+                && ui
+                    .button(egui::RichText::new("use erga's wallet").size(14.0))
+                    .clicked()
+            {
+                action = AddressAction::UseGenerated;
+            }
+            if ui.button(egui::RichText::new("cancel").size(14.0)).clicked() {
+                action = AddressAction::Cancel;
+            }
+        });
+    });
+    action
 }
 
 /// The seed, alone on screen. Returns true when the user dismisses it.
