@@ -102,7 +102,9 @@ static inline void blake2b_compress(thread ulong* hs, thread ulong* m, ulong t, 
     hs[4]^=v4^vC; hs[5]^=v5^vD; hs[6]^=v6^vE; hs[7]^=v7^vF;
 }
 
-struct BuildParams { uint n; uint height; };
+// `base` is the first row of this dispatch: the build runs in pieces so
+// the window can show how far along it is.
+struct BuildParams { uint n; uint height; uint base; };
 
 // Build R: each thread computes genElement(idx,h,M) = Blake2b256(idx_be4 ||
 // h_be4 || M)[1..32] and writes it as 4 little-endian limbs.
@@ -111,7 +113,7 @@ kernel void build_kernel(
     constant BuildParams& bp  [[buffer(1)]],
     uint gid [[thread_position_in_grid]])
 {
-    uint idx = gid; if (idx >= bp.n) return;
+    uint idx = bp.base + gid; if (idx >= bp.n) return;
     // The message is idx(4) || height(4) || M(8192), where M is the constant
     // pad: 1024 big-endian u64s counting 0..1023. Every 8-byte word of that
     // pad is therefore *computable* — the byte-swap of its index — so this

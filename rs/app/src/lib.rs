@@ -489,12 +489,43 @@ impl eframe::App for App {
                 // The run's own state belongs with the other facts about this
                 // run, not floating under the crystal between two unrelated
                 // things.
+                // The table build is the one wait long enough to wonder about,
+                // so it gets a meter and a pulse: soft, but quick enough to
+                // catch the eye and say *this is working, not stuck*.
+                let build = self.miner.p.build_pct.load(std::sync::atomic::Ordering::Relaxed);
+                let status = self.miner.p.status.lock().unwrap().clone();
+                let building = running && status.starts_with("building table") && build < 100;
+                let glow: f32 = if building {
+                    let t = ui.input(|i| i.time);
+                    0.5 + 0.5 * (t * 3.4).sin() as f32
+                } else {
+                    1.0
+                };
                 caps(
                     ui,
-                    &self.miner.p.status.lock().unwrap(),
+                    &status,
                     9.5,
-                    if running { MINT.gamma_multiply(0.8) } else { MUTE },
+                    if building {
+                        MINT.gamma_multiply(0.45 + 0.55 * glow)
+                    } else if running {
+                        MINT.gamma_multiply(0.8)
+                    } else {
+                        MUTE
+                    },
                 );
+                if building {
+                    ui.add_space(9.0);
+                    widgets::battery(ui, build as f32 / 100.0, glow);
+                    ui.add_space(6.0);
+                    caps(
+                        ui,
+                        &format!("{build}%"),
+                        9.5,
+                        MINT.gamma_multiply(0.45 + 0.55 * glow),
+                    );
+                    // Pulsing means animating: ask for the next frame.
+                    ui.ctx().request_repaint();
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // ComboBox takes its height from interact_size; the badge
                     // takes CTRL_H. Same number, so the row cannot step.

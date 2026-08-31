@@ -31,14 +31,23 @@ pub fn mine(host: String, port: u16, address: String, machine: bool) {
             }
             // status may contain spaces; keep it last, one field per token
             println!(
-                "STAT {} {} {acc} {rej} {} {} {st}",
+                "STAT {} {} {acc} {rej} {} {} {} {st}",
                 p.rate_khs.load(Ordering::Relaxed),
                 p.height.load(Ordering::Relaxed),
                 p.hashed.load(Ordering::Relaxed),
                 p.donated.load(Ordering::Relaxed),
+                p.build_pct.load(Ordering::Relaxed),
             );
             let _ = std::io::stdout().flush();
         } else {
+            // The build is the one phase long enough to wonder about, so the
+            // terminal says how far along it is as well as the window.
+            let pct = p.build_pct.load(Ordering::Relaxed);
+            let st = if st.starts_with("building table") && pct < 100 {
+                format!("{st} {pct}%")
+            } else {
+                st
+            };
             let line = format!(
                 "{:>6.1} MH/s | height {} | accepted {acc} rejected {rej} | donated {} | {st}",
                 p.mhs(),

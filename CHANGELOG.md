@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.27.0] — 2026-08-31
+
+### Added
+
+- **A battery for the table build.** Pressing the crystal is followed by a
+  wait while the epoch table is built, and until now that wait was a black box.
+  Beside `building table…` there is now a battery filling up and a percentage,
+  and both breathe — a pulse soft enough not to nag and quick enough to say
+  *working, not stuck*. Measured at 1.48× between trough and peak on a 1.8 s
+  cycle.
+
+  The progress is real, not a stopwatch pretending. The build is dispatched in
+  eight pieces and each one reports as it lands, through the miner's STAT line
+  to the window. `erg mine` prints it too.
+
+### Changed
+
+- The build kernel takes a row offset, so the build can be dispatched in
+  pieces. Swept on an idle M4 Max (227M rows, 6.77 GiB): 1 piece 13.20 s,
+  4 pieces 11.67 s, 8 pieces 13.37 s, 16 pieces 14.89 s, 64 pieces 21.49 s.
+  Run-to-run spread is ~1.5 s, so the eight pieces the meter needs are free.
+  `ERGA_BUILD_PIECES` sweeps it.
+
+
 ## [0.26.0] — 2026-08-31
 
 ### Added

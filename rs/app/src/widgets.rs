@@ -263,3 +263,48 @@ pub fn crystal_button(
     }
     resp.clicked()
 }
+
+/// A battery: how much of the epoch table is built.
+///
+/// The fraction is measured, not timed — the build is dispatched in pieces so
+/// there is real progress to draw. `glow` (0..1) rides the pulse the caller
+/// sets, so the battery and the words beside it breathe together instead of
+/// each on their own clock.
+pub fn battery(ui: &mut egui::Ui, frac: f32, glow: f32) {
+    const W: f32 = 30.0;
+    const H: f32 = 13.0;
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(W + 4.0, H), Sense::hover());
+    let body = egui::Rect::from_min_size(rect.min, Vec2::new(W, H));
+    let lit = MINT.gamma_multiply(0.45 + 0.55 * glow);
+
+    // the case, and the nub that makes it read as a battery rather than a bar
+    ui.painter().rect_filled(body, 3.0, Color32::from_rgb(18, 26, 22));
+    ui.painter().rect_stroke(body, 3.0, Stroke::new(1.0, lit.gamma_multiply(0.75)));
+    ui.painter().rect_filled(
+        egui::Rect::from_min_size(
+            Pos2::new(body.max.x + 1.0, body.center().y - 3.0),
+            Vec2::new(3.0, 6.0),
+        ),
+        1.0,
+        lit.gamma_multiply(0.75),
+    );
+
+    // the charge
+    let f = frac.clamp(0.0, 1.0);
+    if f > 0.001 {
+        let inner = body.shrink(2.5);
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(inner.min, Vec2::new(inner.width() * f, inner.height())),
+            1.5,
+            lit,
+        );
+    }
+    // cells, so it fills in steps the eye can count
+    for i in 1..4 {
+        let x = body.min.x + W * i as f32 / 4.0;
+        ui.painter().line_segment(
+            [Pos2::new(x, body.min.y + 2.5), Pos2::new(x, body.max.y - 2.5)],
+            Stroke::new(1.0, BG),
+        );
+    }
+}

@@ -90,6 +90,10 @@ pub struct Progress {
     pub hashed: AtomicU64,
     pub submitted: AtomicU64, // shares sent this run (drives the donation cadence)
     pub donated: AtomicU64,   // of those, how many funded development
+    /// How far the epoch table has been built, 0..100. Real progress: the
+    /// build is dispatched in pieces so this can be reported rather than
+    /// guessed from a stopwatch.
+    pub build_pct: AtomicU64,
     pub device: Mutex<String>,
     pub status: Mutex<String>,
 }
@@ -106,6 +110,7 @@ impl Progress {
             hashed: AtomicU64::new(0),
             submitted: AtomicU64::new(0),
             donated: AtomicU64::new(0),
+            build_pct: AtomicU64::new(0),
             device: Mutex::new(String::new()),
             status: Mutex::new("idle".into()),
         })
@@ -289,7 +294,9 @@ fn mine_session(
                 // swap. Mining on a stale-height table would be invalid
                 // anyway, so there is nothing to lose by dropping it first.
                 *table = None;
-                match ScanMiner::new_gpu_built(gpu, n, j.height, m) {
+                match ScanMiner::new_gpu_built(gpu, n, j.height, m, &|f| {
+                    p.build_pct.store((f * 100.0) as u64, Ordering::Relaxed);
+                }) {
                     Ok(mn) => *table = Some((j.height, mn)),
                     Err(e) => {
                         // transient build error: drop this table, wait for next job
