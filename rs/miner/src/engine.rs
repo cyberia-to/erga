@@ -168,6 +168,123 @@ fn save_owed(owed: u64) {
     let _ = std::fs::write(p, owed.to_string());
 }
 
+// ─── the next table, built while this one mines ─────────────────────────
+//
+// Mining is memory-bound and the table build is ALU-bound (the V7 diagnostic
+// measured compute running 10× spare during scans), so the two share the GPU
+// well: the build rides in the compute the scans cannot use, on its own
+// queue, and the pause at each block edge disappears instead of shrinking.
+//
+// The price is a second table in memory while both exist. That is checked
+// against what is *available right now*, every block, not against the machine's
+// total at startup — another app may have taken 20 GB since the last block.
+
+/// Sentinel for `Progress::next_pct`: no background build exists.
+pub const NO_PREFETCH: u64 = 200;
+
+/// A miner is Metal objects, which Apple documents as thread-safe to share;
+/// only command encoders are not, and each thread here encodes on its own
+/// queue. Rust cannot see that, hence the wrapper.
+struct SendMiner(ScanMiner);
+unsafe impl Send for SendMiner {}
+
+/// The epoch tables a session mines with: the one in use, and the next one
+/// forming in the background. They travel together because they are one
+/// resource — the answer to "what does block H need".
+#[derive(Default)]
+struct Tables {
+    current: Option<(u32, ScanMiner)>,
+    next: Option<Prefetch>,
+}
+
+struct Prefetch {
+    height: u32,
+    rx: std::sync::mpsc::Receiver<Result<SendMiner, String>>,
+    /// Set when the block arrived before the build finished: drop the pacing
+    /// and finish flat out — someone is waiting now.
+    urgent: Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Drop for Prefetch {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Whether a background build may start, given what the machine has free.
+///
+/// The headroom scales with the intensity setting because both answer the
+/// same question — how much of the machine mining may take. `min` never
+/// prefetches: nominal mining hoards nothing.
+fn prefetch_allowed(intensity: Intensity, available: u64, need: u64) -> bool {
+    const GIB: u64 = 1 << 30;
+    let headroom = match intensity {
+        Intensity::Max => 3 * GIB,
+        Intensity::Eco => 8 * GIB,
+        Intensity::Min => return false,
+    };
+    available > need.saturating_add(headroom)
+}
+
+/// Bytes the system can hand out without swapping, asked fresh each time.
+fn available_memory() -> u64 {
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    sys.available_memory()
+}
+
+/// Begin building `height`'s table in the background, if memory and the
+/// intensity setting allow. The build is paced — one piece, then a rest — to
+/// stay out of the scans' way; a block arriving early flips it to urgent.
+fn start_prefetch(
+    height: u32,
+    version: u8,
+    m: &[u8],
+    p: &Arc<Progress>,
+    intensity: Intensity,
+) -> Option<Prefetch> {
+    let n = autolykos::calc_big_n(version, height);
+    let need = n as u64 * 32;
+    if !prefetch_allowed(intensity, available_memory(), need) {
+        return None;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let urgent = Arc::new(AtomicBool::new(false));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let (u, c, pp, mm) = (urgent.clone(), cancel.clone(), p.clone(), m.to_vec());
+    std::thread::spawn(move || {
+        let result = Gpu::open()
+            .map_err(|e| format!("{e:?}"))
+            .and_then(|gpu| {
+                ScanMiner::new_gpu_built(gpu, n, height, &mm, &|f| {
+                    pp.next_pct.store((f * 100.0) as u64, Ordering::Relaxed);
+                    if c.load(Ordering::Relaxed) {
+                        return false;
+                    }
+                    // Pace: rest ~6 s between pieces so the whole build takes
+                    // about a minute of a ~112 s average block, in slices so
+                    // urgency is felt within 200 ms.
+                    if f < 1.0 && !u.load(Ordering::Relaxed) {
+                        for _ in 0..30 {
+                            if u.load(Ordering::Relaxed) || c.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(200));
+                        }
+                    }
+                    !c.load(Ordering::Relaxed)
+                })
+            })
+            .map(SendMiner);
+        if result.is_err() {
+            pp.next_pct.store(NO_PREFETCH, Ordering::Relaxed);
+        }
+        let _ = tx.send(result);
+    });
+    Some(Prefetch { height, rx, urgent, cancel })
+}
+
 pub struct Progress {
     pub running: AtomicBool,
     pub stop: AtomicBool,
@@ -182,6 +299,9 @@ pub struct Progress {
     /// build is dispatched in pieces so this can be reported rather than
     /// guessed from a stopwatch.
     pub build_pct: AtomicU64,
+    /// The NEXT block's table, built in the background while this one mines.
+    /// 0..=100 while it exists (100 = ready and waiting); 200 = none.
+    pub next_pct: AtomicU64,
     pub device: Mutex<String>,
     pub status: Mutex<String>,
 }
@@ -199,6 +319,7 @@ impl Progress {
             submitted: AtomicU64::new(0),
             donated: AtomicU64::new(0),
             build_pct: AtomicU64::new(0),
+            next_pct: AtomicU64::new(NO_PREFETCH),
             device: Mutex::new(String::new()),
             status: Mutex::new("idle".into()),
         })
@@ -240,7 +361,7 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
 
     // The epoch table lives out here so it survives session switches: it
     // depends only on the block height, never on which address we mine for.
-    let mut table: Option<(u32, ScanMiner)> = None;
+    let mut tables = Tables::default();
 
     // Shares owed to you before the next development share. The donation is
     // a *separate authorized session* — a pool binds each connection to the
@@ -259,7 +380,7 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
         p.set_status(if donating { "connecting… (development share)" } else { "connecting…" });
         match Stratum::connect(&cfg.host, cfg.port, &addr, "erga") {
             Ok(s) => {
-                let end = mine_session(s, &addr, &p, &m, &mut table, &mut quota, donating);
+                let end = mine_session(s, &addr, &p, &m, &mut tables, &mut quota, donating);
                 match end {
                     SessionEnd::Stopped => break,
                     SessionEnd::QuotaMet => {
@@ -323,7 +444,7 @@ fn mine_session(
     address: &str,
     p: &Arc<Progress>,
     m: &[u8],
-    table: &mut Option<(u32, ScanMiner)>,
+    tables: &mut Tables,
     quota: &mut u64,
     donating: bool,
 ) -> SessionEnd {
@@ -365,36 +486,76 @@ fn mine_session(
         if let Some(j) = latest_job {
             // Rebuild only when the height actually changed — a table built
             // by the previous session is still exactly right for this one.
+            let (table, prefetch) = (&mut tables.current, &mut tables.next);
             if table.as_ref().map(|(h, _)| *h) != Some(j.height) {
                 p.height.store(j.height as u64, Ordering::Relaxed);
-                let n = autolykos::calc_big_n(j.version, j.height);
-                p.set_status("building table…");
-                p.rate_khs.store(0, Ordering::Relaxed);
-                let gpu = match Gpu::open() {
-                    Ok(g) => g,
-                    Err(e) => {
-                        p.set_status(format!("GPU open failed: {e:?}"));
-                        return SessionEnd::Closed;
+
+                // The background build, if it was for this very height, is
+                // the fast path: take it ready, or hurry it and wait.
+                let mut swapped = false;
+                if prefetch.as_ref().is_some_and(|pf| pf.height == j.height) {
+                    let pf = prefetch.take().unwrap();
+                    pf.urgent.store(true, Ordering::Relaxed);
+                    p.set_status("building table…");
+                    loop {
+                        match pf.rx.try_recv() {
+                            Ok(Ok(mn)) => {
+                                *table = Some((j.height, mn.0));
+                                swapped = true;
+                                break;
+                            }
+                            Ok(Err(_)) | Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                // the blocking battery shows the same figure
+                                let f = p.next_pct.load(Ordering::Relaxed).min(100);
+                                p.build_pct.store(f, Ordering::Relaxed);
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                            }
+                        }
                     }
-                };
-                // Free the previous epoch's table BEFORE allocating the next.
-                // The table is ~N*32 bytes (6.8 GiB at height 1.86M and it
-                // grows 5% every 51200 blocks), so holding both across a
-                // rebuild doubles peak memory and pushes smaller Macs into
-                // swap. Mining on a stale-height table would be invalid
-                // anyway, so there is nothing to lose by dropping it first.
-                *table = None;
-                match ScanMiner::new_gpu_built(gpu, n, j.height, m, &|f| {
-                    p.build_pct.store((f * 100.0) as u64, Ordering::Relaxed);
-                }) {
-                    Ok(mn) => *table = Some((j.height, mn)),
-                    Err(e) => {
-                        // transient build error: drop this table, wait for next job
-                        p.set_status(format!("table build retry: {e}"));
-                        *table = None;
-                        continue;
+                } else {
+                    // A build for some other height is only in the way.
+                    *prefetch = None;
+                }
+                p.next_pct.store(NO_PREFETCH, Ordering::Relaxed);
+
+                if !swapped {
+                    let n = autolykos::calc_big_n(j.version, j.height);
+                    p.set_status("building table…");
+                    p.rate_khs.store(0, Ordering::Relaxed);
+                    let gpu = match Gpu::open() {
+                        Ok(g) => g,
+                        Err(e) => {
+                            p.set_status(format!("GPU open failed: {e:?}"));
+                            return SessionEnd::Closed;
+                        }
+                    };
+                    // Free the previous epoch's table BEFORE allocating the
+                    // next. The table is ~N*32 bytes (6.8 GiB at height 1.86M,
+                    // growing 5% every 51200 blocks), so holding both across a
+                    // rebuild doubles peak memory and pushes smaller Macs into
+                    // swap. Mining on a stale-height table would be invalid
+                    // anyway, so there is nothing to lose by dropping it first.
+                    *table = None;
+                    match ScanMiner::new_gpu_built(gpu, n, j.height, m, &|f| {
+                        p.build_pct.store((f * 100.0) as u64, Ordering::Relaxed);
+                        true
+                    }) {
+                        Ok(mn) => *table = Some((j.height, mn)),
+                        Err(e) => {
+                            // transient: drop this table, wait for the next job
+                            p.set_status(format!("table build retry: {e}"));
+                            *table = None;
+                            continue;
+                        }
                     }
                 }
+
+                // Mining is about to resume on j.height — begin the next
+                // block's table in the spare compute, memory permitting.
+                *prefetch =
+                    start_prefetch(j.height + 1, j.version, m, p, intensity);
+
                 cursor = 0;
                 window_start = std::time::Instant::now();
                 window_hashed = 0;
@@ -404,7 +565,7 @@ fn mine_session(
             job = Some(j);
         }
 
-        let (Some((_, mn)), Some(j)) = (&*table, &job) else {
+        let (Some((_, mn)), Some(j)) = (&tables.current, &job) else {
             std::thread::sleep(std::time::Duration::from_millis(80));
             continue;
         };

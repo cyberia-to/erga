@@ -1087,6 +1087,7 @@ dependencies = [
  "erga-pool",
  "num-bigint",
  "num-traits",
+ "sysinfo",
 ]
 
 [[package]]

@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.29.0] — 2026-08-31
+
+### Added
+
+- **Seamless block edges.** The next block's table is now built *while the
+  current one mines*, in the compute the memory-bound scans cannot use (the V7
+  diagnostic measured ALU running 10× spare). When the block arrives, the
+  tables swap and mining continues — the pause at each edge disappears instead
+  of shrinking. If the block arrives early, the build drops its pacing and
+  finishes flat out, showing the familiar pulsing battery for the remainder.
+
+  The price is a second table in memory while both exist, so the machine
+  decides, fresh at every block: background building starts only when the
+  memory *available right now* exceeds the table plus headroom — and the
+  headroom follows the intensity setting, because both answer the same
+  question. `max` asks +3 GB, `eco` asks +8 GB, `min` never prefetches. On a
+  16 GB Mac nothing changes at all.
+
+  The regime is visible: a calm battery in the header (no pulse — nothing is
+  waiting) with `next table N%`, and a `next table` row in THE MACHINE that
+  reads `ready` when the next edge will cost nothing.
+
+### Changed
+
+- The version caps now read `v0.29.0 · mit`. The window deliberately does not
+  volunteer everything — the development share among it — and the licence is
+  the honest pointer: every answer is in the code, and the code is yours.
+
+### Removed
+
+- The `to development` row. The count still exists in the store and the log;
+  the interface does not advertise it.
+
+
 ## [0.28.0] — 2026-08-31
 
 ### Added

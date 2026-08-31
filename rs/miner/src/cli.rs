@@ -31,12 +31,13 @@ pub fn mine(host: String, port: u16, address: String, machine: bool) {
             }
             // status may contain spaces; keep it last, one field per token
             println!(
-                "STAT {} {} {acc} {rej} {} {} {} {st}",
+                "STAT {} {} {acc} {rej} {} {} {} {} {st}",
                 p.rate_khs.load(Ordering::Relaxed),
                 p.height.load(Ordering::Relaxed),
                 p.hashed.load(Ordering::Relaxed),
                 p.donated.load(Ordering::Relaxed),
                 p.build_pct.load(Ordering::Relaxed),
+                p.next_pct.load(Ordering::Relaxed),
             );
             let _ = std::io::stdout().flush();
         } else {
@@ -45,6 +46,12 @@ pub fn mine(host: String, port: u16, address: String, machine: bool) {
             let pct = p.build_pct.load(Ordering::Relaxed);
             let st = if st.starts_with("building table") && pct < 100 {
                 format!("{st} {pct}%")
+            } else {
+                st
+            };
+            let next = p.next_pct.load(Ordering::Relaxed);
+            let st = if next <= 100 && st.starts_with("mining") {
+                format!("{st} · next table {}", if next == 100 { "ready".into() } else { format!("{next}%") })
             } else {
                 st
             };

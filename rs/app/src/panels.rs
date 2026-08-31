@@ -78,6 +78,14 @@ pub fn machine_panel(ui: &mut egui::Ui, v: &Machine) {
         // seconds spent rebuilding the table each block too.
         card_row(ui, "effective", &format!("{e:.1} MH/s"));
     }
+    // The seamless regime, when it is on: the next block's table, built in
+    // the compute the memory-bound scans cannot use. "ready" means the next
+    // block starts with no pause at all.
+    let next = p.next_pct.load(O::Relaxed);
+    if next <= 100 {
+        let v = if next == 100 { "ready".to_string() } else { format!("{next}%") };
+        card_row(ui, "next table", &v);
+    }
 }
 
 /// THE PAYOUT — what the work returns: the game, the ledger, the balance.
@@ -88,9 +96,8 @@ pub struct Payout<'a> {
     pub solo: bool,
     pub mhs: f64,
     pub running: bool,
-    /// Accepted shares, hashes, and shares mined for development across
-    /// every run, ever.
-    pub all_time: (u64, u64, u64),
+    /// Accepted shares and hashes across every run, ever.
+    pub all_time: (u64, u64),
     /// The height this panel must come out at. 0 = the content decides.
     pub target_h: f32,
 }
@@ -131,11 +138,6 @@ pub fn payout_panel(ui: &mut egui::Ui, v: &Payout) {
         ui.add_space(5.0);
         card_row(ui, "shares", &all_time.0.to_string());
         card_row(ui, "hashed", &human(all_time.1));
-        // The development share is stated where the earnings are, not buried
-        // in a log — 1 share in 20, and you can see the count.
-        if all_time.2 > 0 {
-            card_row(ui, "to development", &all_time.2.to_string());
-        }
     }
     let _ = target_h;
 }

@@ -132,7 +132,7 @@ impl Miner {
 
 /// Parse one line of the child's `--machine` output into the shared progress.
 ///   `DEVICE <name…>`
-///   `STAT <rate_khs> <height> <accepted> <rejected> <hashed> <donated> <build%> <status…>`
+///   `STAT <rate_khs> <height> <accepted> <rejected> <hashed> <donated> <build%> <next%> <status…>`
 fn parse_line(p: &Arc<Progress>, line: &str) {
     let mut it = line.split_whitespace();
     match it.next() {
@@ -150,6 +150,7 @@ fn parse_line(p: &Arc<Progress>, line: &str) {
             let hashed = it.next().and_then(|s| s.parse::<u64>().ok());
             let donated = it.next().and_then(|s| s.parse::<u64>().ok());
             let build = it.next().and_then(|s| s.parse::<u64>().ok());
+            let next = it.next().and_then(|s| s.parse::<u64>().ok());
             if let (Some(rate), Some(height), Some(acc), Some(rej), Some(hashed), Some(donated)) =
                 (rate, height, acc, rej, hashed, donated)
             {
@@ -161,6 +162,9 @@ fn parse_line(p: &Arc<Progress>, line: &str) {
                 p.donated.store(donated, Ordering::Relaxed);
                 if let Some(b) = build {
                     p.build_pct.store(b, Ordering::Relaxed);
+                }
+                if let Some(x) = next {
+                    p.next_pct.store(x, Ordering::Relaxed);
                 }
                 // the rest of the line is the status text
                 let status: String = it.collect::<Vec<_>>().join(" ");

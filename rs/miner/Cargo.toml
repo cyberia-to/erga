@@ -9,6 +9,7 @@ name = "erga_miner"
 path = "src/lib.rs"
 
 [dependencies]
+sysinfo = "0.39"
 autolykos   = { path = "../autolykos" }
 blake-bench = { path = "../blake-bench" }
 erga-pool   = { path = "../pool" }

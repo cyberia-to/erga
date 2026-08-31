@@ -128,16 +128,18 @@ impl ScanMiner {
     /// it for scanning. `m` is the 8 KiB pad. Verifies a few rows against the
     /// CPU reference before trusting the buffer.
     ///
-    /// `on_progress` is called with 0.0..=1.0 after each piece. The build is
-    /// dispatched in pieces for exactly that reason: one dispatch of the whole
-    /// grid is a black box for as long as it takes, and the only honest way to
-    /// draw a progress meter is to have real progress to draw.
+    /// `on_progress` is called with 0.0..=1.0 after each piece; returning
+    /// false abandons the build. The build is dispatched in pieces for
+    /// exactly that reason: one dispatch of the whole grid is a black box for
+    /// as long as it takes, and the only honest way to draw a progress meter
+    /// is to have real progress to draw — and the only clean way to cancel a
+    /// background build is between pieces.
     pub fn new_gpu_built(
         gpu: Gpu,
         n: u32,
         height: u32,
         m: &[u8],
-        on_progress: &dyn Fn(f32),
+        on_progress: &dyn Fn(f32) -> bool,
     ) -> Result<ScanMiner, String> {
         let queue = gpu.new_command_queue().map_err(|e| format!("{e:?}"))?;
         let dispatch = Dispatch::new(&queue);
@@ -165,7 +167,9 @@ impl ScanMiner {
             .unwrap_or(BUILD_PIECES);
         let rows = n.div_ceil(pieces);
         let mut base = 0u32;
-        on_progress(0.0);
+        if !on_progress(0.0) {
+            return Err("cancelled".into());
+        }
         while base < n {
             let count = rows.min(n - base) as usize;
             let bp: [u8; 12] =
@@ -182,7 +186,9 @@ impl ScanMiner {
                 );
             }
             base += rows;
-            on_progress((base.min(n) as f32) / n as f32);
+            if !on_progress((base.min(n) as f32) / n as f32) {
+                return Err("cancelled".into());
+            }
         }
         // verify a handful of rows against the CPU reference
         let h = height.to_be_bytes();

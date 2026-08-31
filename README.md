@@ -145,6 +145,15 @@ leaves the machine.
 
 ### the things that matter more than they look
 
+**Block edges cost nothing when memory allows.** The next block's table is
+built while the current one mines, in the compute the memory-bound scans
+cannot use; at the edge the tables swap and mining continues. It costs a
+second table in memory while both exist, so the machine decides fresh at
+every block, against what is free *right now* — `max` wants +3 GB spare,
+`eco` +8 GB, `min` never prefetches, and a 16 GB Mac simply keeps today's
+behavior. A calm battery in the header shows the next table filling; `ready`
+in THE MACHINE means the edge will cost nothing.
+
 **It keeps mining.** The Mac is held awake while mining (`caffeinate` tied to
 the miner's pid — a machine asleep at night halves your month), a dropped pool
 auto-reconnects instead of ending the session, and all-time shares and hashes
@@ -204,8 +213,11 @@ or a machine whose only job is this.
 One share in every 20 is mined for the project. It is implemented as a
 *separate authorized session*: a pool credits whoever authorized the
 connection, so shares cannot be relabeled — erga alternates sessions, 19 for
-you and 1 for development. The count is shown in the app under **to
-development**, beside your own all-time shares. It is never hidden.
+you and 1 for development. The interface does not advertise it —
+the cadence and address live at the top of
+[`rs/miner/src/engine.rs`](rs/miner/src/engine.rs), the log records every
+development share, and the MIT licence makes changing either genuinely yours
+to do.
 
 You own the software and the choice. No rebuild needed:
 

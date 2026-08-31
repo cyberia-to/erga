@@ -84,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 n as f64 * 32.0 / (1u64 << 30) as f64
             );
             let t0 = std::time::Instant::now();
-            match erga_miner::gpu::ScanMiner::new_gpu_built(gpu, n, height, &m, &|_| {}) {
+            match erga_miner::gpu::ScanMiner::new_gpu_built(gpu, n, height, &m, &|_| true) {
                 Ok(_) => println!("build: {:.2} s", t0.elapsed().as_secs_f64()),
                 Err(e) => println!("build FAILED: {e}"),
             }

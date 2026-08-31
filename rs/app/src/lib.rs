@@ -381,7 +381,6 @@ impl eframe::App for App {
             (
                 self.store.accepted + self.miner.p.accepted.load(Relaxed),
                 self.store.hashed + self.miner.p.hashed.load(Relaxed),
-                self.store.donated + self.miner.p.donated.load(Relaxed),
             )
         };
         // Checkpoint the totals every minute so a crash costs at most that.
@@ -488,7 +487,10 @@ impl eframe::App for App {
                 );
                 ui.label(job);
                 ui.add_space(8.0);
-                caps(ui, &format!("v{}", env!("CARGO_PKG_VERSION")), 9.5, MUTE.gamma_multiply(0.85));
+                // The licence sits with the version: the answers this window
+                // does not volunteer — the development share among them — are
+                // all in the code, and MIT is what makes the code truly yours.
+                caps(ui, &format!("v{} · mit", env!("CARGO_PKG_VERSION")), 9.5, MUTE.gamma_multiply(0.85));
                 ui.add_space(16.0);
                 // The run's own state belongs with the other facts about this
                 // run, not floating under the crystal between two unrelated
@@ -529,6 +531,16 @@ impl eframe::App for App {
                     );
                     // Pulsing means animating: ask for the next frame.
                     ui.ctx().request_repaint();
+                }
+                // The same battery in a calmer temper: the NEXT table filling
+                // up while this one mines. No pulse — a pulse says "wait for
+                // me", and nothing here is waiting.
+                let next = self.miner.p.next_pct.load(std::sync::atomic::Ordering::Relaxed);
+                if running && !building && next < 100 {
+                    ui.add_space(9.0);
+                    widgets::battery(ui, next as f32 / 100.0, 0.55);
+                    ui.add_space(6.0);
+                    caps(ui, &format!("next table {next}%"), 9.5, MUTE);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // ComboBox takes its height from interact_size; the badge
@@ -787,7 +799,7 @@ impl eframe::App for App {
                 use std::sync::atomic::Ordering::Relaxed;
                 let state = format!(
                     "pool: {} ({}:{}) solo={}\nstatus: {}\ndevice: {}\nrate: {:.1} MH/s\n\
-                     height: {}\nshares: {} accepted, {} rejected, {} to development\n\
+                     height: {}\nshares: {} accepted, {} rejected\n\
                      hashed this run: {}\nall time: {} shares, {} hashes",
                     pl.label,
                     pl.host,
@@ -799,7 +811,6 @@ impl eframe::App for App {
                     p.height.load(Relaxed),
                     p.accepted.load(Relaxed),
                     p.rejected.load(Relaxed),
-                    p.donated.load(Relaxed),
                     human(p.hashed.load(Relaxed)),
                     self.store.accepted + p.accepted.load(Relaxed),
                     human(self.store.hashed + p.hashed.load(Relaxed)),
