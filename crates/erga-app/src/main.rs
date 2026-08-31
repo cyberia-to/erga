@@ -564,14 +564,15 @@ impl eframe::App for App {
     }
 }
 
+/// A pill that sits level with the buttons beside it. egui sizes a button as
+/// max(interact_size.y, text + 2*button_padding.y); matching that formula —
+/// and the button font — is what keeps the header from stepping.
 fn badge(ui: &mut egui::Ui, text: &str) {
-    let galley = ui.painter().layout_no_wrap(
-        text.into(),
-        FontId::proportional(10.0),
-        MINT,
-    );
-    let pad = Vec2::new(10.0, 5.0);
-    let (rect, _) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::hover());
+    let galley = ui.painter().layout_no_wrap(text.into(), FontId::proportional(10.5), MINT);
+    let pad = ui.spacing().button_padding;
+    let h = ui.spacing().interact_size.y.max(galley.size().y + pad.y * 2.0);
+    let size = Vec2::new(galley.size().x + pad.x * 2.0, h);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter().rect_stroke(rect, 999.0, Stroke::new(1.0, MINT.gamma_multiply(0.5)));
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, MINT);
 }

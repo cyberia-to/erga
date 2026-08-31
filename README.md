@@ -101,6 +101,30 @@ which at today's price is a couple of dollars. The app shows this live —
 The interesting number is not the dollars, it is the watts (see
 [the research](#the-research-behind-it) below).
 
+## why only two pools
+
+Ergo's official docs list eight. Every one was probed with this client on
+2026-08-31, and only two answered:
+
+| pool | what happened |
+|---|---|
+| **herominers** | works — shares accepted, 0.5 ERG floor, full per-address API |
+| **2miners** | works — share accepted, 1 ERG floor, per-address API |
+| k1pool | sends jobs this client parses, but after minutes of mining its API still reported `workers: 0` and no shares — nothing we sent was credited |
+| kryptex | TCP opens on 7777 and then silence: no reply to subscribe in 35 s |
+| woolypooly | its own advertised host, `pool.woolypooly.com:3100`, does not resolve |
+| sigmanauts | stratum hostnames do not resolve; the raw IP refuses both ports. The site is still up on GitHub Pages; the pool behind it is not |
+| nanopool | hostnames resolve, every documented port closed |
+| f2pool | no Ergo host exists at all |
+
+The pattern is the same everywhere: Ergo's network fell to ~600 GH/s, most
+pools quietly retired the infrastructure, and the marketing pages — and the
+official list — stayed up. A menu entry that silently mines nothing is worse
+than a short menu, so the list here is short.
+
+Endpoints in the docs are not evidence. Each pool above was checked by DNS,
+by TCP, by a real stratum handshake, and where possible by an accepted share.
+
 ## how it works
 
 ```
