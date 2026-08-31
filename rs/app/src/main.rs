@@ -10,10 +10,12 @@
 
 mod balance;
 mod chime;
+mod cli;
 mod miner;
 mod panels;
 mod purse;
 mod theme;
+mod tray;
 mod widgets;
 mod pool;
 mod pools;
@@ -60,36 +62,63 @@ fn main() -> eframe::Result<()> {
     // miner's Metal work in one process is what used to abort the app. With
     // no window there is no second graphics API, so it is safe here.
     let argv: Vec<String> = std::env::args().collect();
-    if argv.get(1).map(|s| s.as_str()) == Some("mine") {
-        let pool = &pools::POOLS[pools::load_choice()];
-        let host = argv.get(2).cloned().unwrap_or_else(|| pool.host.to_string());
-        let port = argv.get(3).and_then(|s| s.parse().ok()).unwrap_or(pool.port);
-        let address = match argv.get(4) {
-            Some(a) => a.clone(),
-            None => match erga_wallet::Wallet::load_or_create() {
-                Ok(w) => {
-                    println!("mining to your wallet: {}", w.address);
-                    w.address
-                }
-                Err(e) => {
-                    eprintln!("no address given and no wallet available: {e}");
-                    std::process::exit(1);
-                }
-            },
-        };
-        println!("pool: {host}:{port}");
-        erga_miner::cli::mine(host, port, address, argv.iter().any(|a| a == "--machine"));
-        return Ok(());
+    match argv.get(1).map(|s| s.as_str()) {
+        Some("mine") => {
+            let pool = pools::get(pools::load_choice());
+            let host = argv.get(2).cloned().unwrap_or_else(|| pool.host.to_string());
+            let port = argv.get(3).and_then(|s| s.parse().ok()).unwrap_or(pool.port);
+            let address = match argv.get(4) {
+                Some(a) => a.clone(),
+                None => match erga_wallet::Wallet::load_or_create() {
+                    Ok(w) => {
+                        println!("mining to your wallet: {}", w.address);
+                        w.address
+                    }
+                    Err(e) => {
+                        eprintln!("no address given and no wallet available: {e}");
+                        std::process::exit(1);
+                    }
+                },
+            };
+            println!("pool: {host}:{port}");
+            // Headless runs the engine in-process, which the window
+            // deliberately does not: with no window there is no second
+            // graphics API to pair with the miner's Metal work.
+            erga_miner::cli::mine(host, port, address, argv.iter().any(|a| a == "--machine"));
+            return Ok(());
+        }
+        Some("status") => {
+            cli::status();
+            return Ok(());
+        }
+        Some("link") => {
+            cli::link();
+            return Ok(());
+        }
+        Some("help" | "--help" | "-h") => {
+            cli::help();
+            return Ok(());
+        }
+        Some(other) if other.starts_with('-') || !other.is_empty() => {
+            eprintln!("unknown command `{other}`");
+            cli::help();
+            std::process::exit(1);
+        }
+        _ => {}
     }
+    // Installed as an app, `erga` should also be a command. Costs nothing,
+    // asks nothing, and only happens from inside a bundle.
+    cli::link_quietly();
 
     // ERGA_WIN=1600x1000 overrides the initial window size (dev/testing).
     let size = std::env::var("ERGA_WIN")
         .ok()
-        .and_then(|s| {
-            let (w, h) = s.split_once('x')?;
+        .and_then(|v| {
+            let (w, h) = v.split_once('x')?;
             Some([w.parse().ok()?, h.parse().ok()?])
         })
-        .unwrap_or([500.0, 1000.0]);
+        .unwrap_or([1180.0, 820.0]);
+
     // The Dock tile of a *running* app comes from NSApplication's icon, not
     // from the bundle's .icns — and winit resets it when no icon is given, so
     // macOS falls back to a generated letter placeholder. Handing eframe the
@@ -125,6 +154,10 @@ struct App {
     pool: pool::PoolState,
     pool_idx: usize,
     wallet: Result<erga_wallet::Wallet, String>,
+    /// The menu-bar item, built on the first frame: macOS wants it made on
+    /// the main thread, and this is the only place guaranteed to be one.
+    tray: Option<tray::Tray>,
+    tray_tried: bool,
     /// When the crystal was last pressed, for the press animation.
     pressed_at: Option<std::time::Instant>,
     /// Accepted shares already announced, so each is celebrated exactly once.
@@ -161,6 +194,8 @@ impl App {
             pool,
             pool_idx: idx,
             wallet,
+            tray: None,
+            tray_tried: false,
             pressed_at: None,
             heard_shares: 0,
             show_seed: false,
@@ -238,6 +273,30 @@ impl eframe::App for App {
         if self.autostart() && self.session_start.is_none() && !self.miner.is_running() {
             self.begin();
         }
+        // Build the menu-bar item once, on the first frame — macOS wants it
+        // made from the main thread, and this is one.
+        if !self.tray_tried {
+            self.tray_tried = true;
+            self.tray = tray::Tray::new();
+        }
+        let running = self.miner.is_running();
+        if let Some(t) = &self.tray {
+            match t.poll() {
+                tray::Ask::ToggleMining => {
+                    chime::press();
+                    if running {
+                        self.end();
+                    } else {
+                        self.begin();
+                    }
+                }
+                tray::Ask::Quit => {
+                    self.end();
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                tray::Ask::Nothing => {}
+            }
+        }
         let running = self.miner.is_running();
         // A share is the only thing here that is genuinely good news, so it is
         // the only thing that makes a sound on its own.
@@ -281,6 +340,15 @@ impl eframe::App for App {
                 p.hashed.load(Relaxed),
             );
             self.last_save = std::time::Instant::now();
+        }
+
+        if let Some(t) = &mut self.tray {
+            let toward = {
+                let pi = self.pool.inner.lock().unwrap();
+                (pi.ok && pi.threshold_erg > 0.0)
+                    .then(|| ((pi.balance_erg + pi.pending_erg) / pi.threshold_erg) as f32)
+            };
+            t.update(running, self.miner.p.mhs(), toward);
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {

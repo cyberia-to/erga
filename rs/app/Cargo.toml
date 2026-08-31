@@ -1,6 +1,6 @@
 [package]
 name = "erga-app"
-version = "0.16.0"
+version = "0.17.0"
 edition = "2021"
 description = "One-button ERGO miner for Apple Silicon"
 
@@ -16,3 +16,4 @@ egui         = "0.28"
 ureq         = { version = "2", features = ["json"] }
 serde_json   = "1"
 sysinfo      = "0.39"
+tray-icon = "0.24.2"

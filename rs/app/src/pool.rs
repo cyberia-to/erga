@@ -66,40 +66,41 @@ impl PoolState {
         }
         let inner = self.inner.clone();
         std::thread::spawn(move || {
-            let pool = pools::get(idx);
-            let ledger = match pool.ledger {
-                Ledger::Herominers => herominers(&address),
-                Ledger::TwoMiners => two_miners(&address),
-                Ledger::K1Pool => k1pool(&address),
-                Ledger::None => Err("this pool has no in-app ledger".into()),
-            };
-            let net = network(); // best-effort; projections degrade gracefully
+            let fresh = snapshot(&address, idx);
             let mut p = inner.lock().unwrap();
-            p.querying = false;
-            match ledger {
-                Ok(l) => {
-                    p.ok = true;
-                    p.balance_erg = l.balance;
-                    p.pending_erg = l.pending;
-                    p.paid_erg = l.paid;
-                    p.hashrate_24h_mhs = l.hashrate_mhs;
-                    p.threshold_erg =
-                        if l.threshold > 0.0 { l.threshold } else { pool.payout_erg };
-                }
-                Err(e) => {
-                    p.ok = false;
-                    p.error = Some(e);
-                    p.threshold_erg = pool.payout_erg;
-                }
-            }
-            if let Ok((difficulty, price)) = net {
-                p.difficulty = difficulty;
-                if price > 0.0 {
-                    p.price_usd = price;
-                }
-            }
+            *p = fresh;
         });
     }
+}
+
+/// Read everything, synchronously. The window calls this on a thread; the
+/// terminal calls it directly.
+pub fn snapshot(address: &str, idx: usize) -> PoolInfo {
+    let pool = pools::get(idx);
+    let mut p = PoolInfo { threshold_erg: pool.payout_erg, ..Default::default() };
+    match match pool.ledger {
+        Ledger::Herominers => herominers(address),
+        Ledger::TwoMiners => two_miners(address),
+        Ledger::K1Pool => k1pool(address),
+        Ledger::None => Err("this pool has no in-app ledger".into()),
+    } {
+        Ok(l) => {
+            p.ok = true;
+            p.balance_erg = l.balance;
+            p.pending_erg = l.pending;
+            p.paid_erg = l.paid;
+            p.hashrate_24h_mhs = l.hashrate_mhs;
+            if l.threshold > 0.0 {
+                p.threshold_erg = l.threshold;
+            }
+        }
+        Err(e) => p.error = Some(e),
+    }
+    if let Ok((difficulty, price)) = network() {
+        p.difficulty = difficulty;
+        p.price_usd = price;
+    }
+    p
 }
 
 struct LedgerRead {

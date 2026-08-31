@@ -38,17 +38,19 @@ xattr -dr com.apple.quarantine /Applications/erga.app
 Then open it and press the crystal. A wallet is generated on first launch —
 back up the 15 words from the **back up** button; that seed *is* your wallet.
 
-Headless, no GUI — same engine, no window:
+### from the terminal
+
+Installing the app puts `erga` on your PATH by itself — it links
+`/usr/local/bin/erga` (or `~/.local/bin/erga`) to the binary inside the bundle
+on first launch. `erga link` does it on demand.
 
 ```
-erga mine                                   # your wallet, the pool you picked
-erga mine ergo.herominers.com 1180 <addr>   # or say it explicitly
-```
-
-Installed as an app, the binary is inside the bundle:
-
-```
-/Applications/erga.app/Contents/MacOS/erga mine
+erga                      open the window
+erga mine                 mine here, no window — your wallet, the pool you picked
+erga mine <host> <port> <address>
+erga status               what the pool owes you, without opening anything
+erga link                 put `erga` on your PATH
+erga help
 ```
 
 ## which Mac, and what to expect

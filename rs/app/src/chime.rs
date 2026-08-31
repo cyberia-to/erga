@@ -6,8 +6,8 @@
 //! running for days must never make a noise you grow to resent.
 //!
 //! - **press** — a wooden pluck, two harmonics under a fast decay.
-//! - **share** — a bird: two rising chirps with vibrato, the sound of
-//!   something small arriving, which is exactly what a share is.
+//! - **share** — two soft notes a fourth apart, struck like wood. Something
+//!   small has arrived, and it says so without insisting.
 
 use std::path::PathBuf;
 
@@ -55,32 +55,29 @@ fn press_samples() -> Vec<i16> {
         .collect()
 }
 
-/// A bird: two short rising sweeps with a little vibrato, the second higher
-/// than the first. Something small has arrived.
+/// Two soft notes a fourth apart, struck like wood rather than glass: quick
+/// attack, long gentle decay, a little warmth from the second harmonic. The
+/// first version was a pair of rising chirps up near 3 kHz, which is exactly
+/// the register that becomes a whistle you resent by the fiftieth share.
 fn share_samples() -> Vec<i16> {
-    let total = (RATE as f32 * 0.42) as usize;
+    let total = (RATE as f32 * 0.95) as usize;
+    // A5, then D6 a moment later — an open interval, nothing urgent about it.
+    let notes = [(0.00f32, 880.0f32), (0.16, 1174.7)];
     (0..total)
         .map(|i| {
             let t = i as f32 / RATE as f32;
-            // two chirps: 0.00–0.13 s and 0.18–0.33 s
-            let (start, base, rise) = if t < 0.15 {
-                (0.0, 1_760.0, 900.0)
-            } else if t >= 0.18 && t < 0.36 {
-                (0.18, 2_093.0, 1_150.0)
-            } else {
-                return 0;
-            };
-            let u = t - start;
-            let span = if start == 0.0 { 0.13 } else { 0.16 };
-            if u > span {
-                return 0;
+            let mut v = 0.0f32;
+            for (start, f) in notes {
+                if t < start {
+                    continue;
+                }
+                let u = t - start;
+                // soft attack over ~12 ms, then a long exponential tail
+                let env = (-u * 4.4).exp() * (1.0 - (-u * 240.0).exp());
+                v += (u * f * std::f32::consts::TAU).sin() * env;
+                v += (u * f * 2.0 * std::f32::consts::TAU).sin() * env * 0.14;
             }
-            let k = u / span;
-            // rise, then ease off at the very end — a real chirp bends
-            let freq = base + rise * (k * 1.35).min(1.0) + 40.0 * (u * 90.0).sin();
-            let env = (k * std::f32::consts::PI).sin().powf(0.7);
-            let v = (u * freq * std::f32::consts::TAU).sin();
-            (v * env * 5_200.0) as i16
+            (v * 2_600.0) as i16
         })
         .collect()
 }

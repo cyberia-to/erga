@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.17.0] — 2026-08-31
+
+### Added
+
+- A menu-bar item. Mining, it carries how close the payout is; idle, its menu
+  offers to start. erga is a thing you start and stop looking at, so the one
+  number worth carrying out of the window is that one.
+- A terminal face worth reading: `erga help`, `erga status` (what the pool owes
+  you, without opening anything), `erga link`.
+- Installing the app puts `erga` on your PATH by itself, from inside the
+  bundle, without a prompt or an admin password.
+
+### Changed
+
+- The share sound is two soft notes a fourth apart, struck like wood. The
+  first version was a pair of chirps near 3 kHz — the register that becomes a
+  whistle you resent by the fiftieth share.
+
+
 ## [0.16.0] — 2026-08-31
 
 ### Added
