@@ -160,7 +160,7 @@ fn parse_line(v: &Value, en1: &std::sync::Mutex<Vec<u8>>) -> Option<PoolEvent> {
         }
         Some("mining.notify") => {
             let p = v.get("params")?.as_array()?;
-            let job_id = p.get(0)?.as_str().unwrap_or("0").to_string();
+            let job_id = p.first()?.as_str().unwrap_or("0").to_string();
             let height = p.get(1)?.as_u64()? as u32;
             let msg = hex_to_bytes(p.get(2)?.as_str()?);
             let version = p.get(5).and_then(|x| x.as_u64()).unwrap_or(2) as u8;

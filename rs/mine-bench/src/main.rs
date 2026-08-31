@@ -426,7 +426,7 @@ fn cmd_v9(log2n: u32) {
     let bytes = n * 32;
     let width = 16384usize;
     let bytes_per_row = width * 16;
-    if bytes % bytes_per_row != 0 {
+    if !bytes.is_multiple_of(bytes_per_row) {
         eprintln!(
             "skip V9: N*32={} not divisible by bytes_per_row={}",
             bytes, bytes_per_row

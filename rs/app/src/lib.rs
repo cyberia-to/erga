@@ -314,6 +314,7 @@ impl eframe::App for App {
             (
                 self.store.accepted + self.miner.p.accepted.load(Relaxed),
                 self.store.hashed + self.miner.p.hashed.load(Relaxed),
+                self.store.donated + self.miner.p.donated.load(Relaxed),
             )
         };
         // Checkpoint the totals every minute so a crash costs at most that.
@@ -462,6 +463,16 @@ impl eframe::App for App {
             let mhs = p.mhs();
             let (cpu, mem, net_kbs) = (self.sys.cpu, self.sys.mem, self.sys.down_kbs);
             let (miner_cpu, miner_mem) = (self.sys.miner_cpu, self.sys.miner_mem);
+            let machine = panels::Machine {
+                p: &p,
+                cpu,
+                mem,
+                miner_cpu,
+                miner_mem,
+                net_kbs,
+                mhs,
+                eff_mhs,
+            };
             let on_chain = self.balance.inner.lock().unwrap().erg;
             let has_ledger = pools::has_ledger(self.pool_idx);
             let solo = self.solo();
@@ -525,7 +536,7 @@ impl eframe::App for App {
                         ui.set_width(pw);
                         ui.add_space(((band_h - panel_h) / 2.0).max(0.0));
                         panel_frame(ui, pw, panel_h, |ui| {
-                            machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs);
+                            machine_panel(ui, &machine);
                         });
                     });
                     ui.add_space(gap);
@@ -552,7 +563,18 @@ impl eframe::App for App {
                         ui.add_space(((band_h - panel_h) / 2.0).max(0.0));
                         panel_frame(ui, pw, panel_h, |ui| {
                             let pi = self.pool.inner.lock().unwrap();
-                            payout_panel(ui, &pi, has_ledger, solo, mhs, running, all_time, panel_h - 32.0);
+                            payout_panel(
+                                ui,
+                                &panels::Payout {
+                                    pi: &pi,
+                                    has_ledger,
+                                    solo,
+                                    mhs,
+                                    running,
+                                    all_time,
+                                    target_h: panel_h - 32.0,
+                                },
+                            );
                         });
                     });
                 });
@@ -591,12 +613,23 @@ impl eframe::App for App {
                             ui.vertical(|ui| {
                                 ui.set_width(col_w);
                                 panel_frame(ui, col_w, 0.0, |ui| {
-                                    machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs);
+                                    machine_panel(ui, &machine);
                                 });
                                 ui.add_space(12.0);
                                 panel_frame(ui, col_w, 0.0, |ui| {
                                     let pi = self.pool.inner.lock().unwrap();
-                                    payout_panel(ui, &pi, has_ledger, solo, mhs, running, all_time, 0.0);
+                                    payout_panel(
+                                        ui,
+                                        &panels::Payout {
+                                            pi: &pi,
+                                            has_ledger,
+                                            solo,
+                                            mhs,
+                                            running,
+                                            all_time,
+                                            target_h: 0.0,
+                                        },
+                                    );
                                 });
                                 ui.add_space(14.0);
                             });

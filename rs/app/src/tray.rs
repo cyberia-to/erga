@@ -93,7 +93,7 @@ impl Tray {
             format!(" {mhs:.0}")
         };
         if title != self.title {
-            let _ = self.icon.set_title(Some(&title));
+            self.icon.set_title(Some(&title));
             self.title = title;
         }
         let label = if running { "stop mining" } else { "start mining" };

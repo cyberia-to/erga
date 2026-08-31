@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)] // a parameter sweep takes parameters
 //! Phase 3 — integrated Autolykos v2 mining: combine the R-table from
 //! Phase 2 with the Blake2b256 from Phase 1 into the full mining loop,
 //! and measure actual MH/s on M4 Max.
@@ -135,8 +136,8 @@ pub fn mine_one(m: &[u8; 32], nonce: u64, r_bytes: &[u8], n: u64) -> [u8; 32] {
 
     // Issue prefetches for the first few rows BEFORE entering the loop.
     const PREFETCH_AHEAD: usize = 4;
-    for i in 0..PREFETCH_AHEAD.min(32) {
-        prefetch_read(unsafe { r_bytes.as_ptr().add(offsets[i]) });
+    for &off in offsets.iter().take(PREFETCH_AHEAD.min(32)) {
+        prefetch_read(unsafe { r_bytes.as_ptr().add(off) });
     }
 
     let mut sum: [u64; 4] = [0; 4];
@@ -395,7 +396,7 @@ impl GpuMinerV9 {
             set_tex(
                 enc.as_raw(),
                 self.sel_set_texture,
-                texture.as_raw() as *mut std::ffi::c_void,
+                texture.as_raw(),
                 0,
             );
         }

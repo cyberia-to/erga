@@ -12,21 +12,25 @@ use crate::widgets::{card_row, card_row_tinted, human, meter};
 use crate::{pool, AMBER, BG, CORAL, MINT, MUTE, SKY};
 
 /// THE MACHINE — what your Mac is doing right now, in meters and counts.
-pub fn machine_panel(
-    ui: &mut egui::Ui,
-    p: &Arc<Progress>,
-    cpu: f32,
-    mem: f32,
-    miner_cpu: f32,
-    miner_mem: f32,
-    net_kbs: f64,
-    mhs: f64,
-    running: bool,
-    // eff_mhs: hashes/sec over the whole session, table rebuilds included —
-    // the rate the pool will agree with.
-    eff_mhs: Option<f64>,
-) {
-    let _ = running;
+/// Everything the machine panel reads. A struct rather than ten arguments,
+/// so the call site says what it passes instead of relying on their order.
+pub struct Machine<'a> {
+    pub p: &'a Arc<Progress>,
+    pub cpu: f32,
+    pub mem: f32,
+    /// The miner's own share of each, so the meters can say what erga costs
+    /// rather than what the machine happens to be doing.
+    pub miner_cpu: f32,
+    pub miner_mem: f32,
+    pub net_kbs: f64,
+    pub mhs: f64,
+    /// Hashes per second over the whole session, table rebuilds included —
+    /// the rate the pool will agree with.
+    pub eff_mhs: Option<f64>,
+}
+
+pub fn machine_panel(ui: &mut egui::Ui, v: &Machine) {
+    let Machine { p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, eff_mhs } = *v;
     use std::sync::atomic::Ordering as O;
     caps(ui, "the machine", 10.5, MUTE);
     ui.add_space(12.0);
@@ -77,18 +81,22 @@ pub fn machine_panel(
 }
 
 /// THE PAYOUT — what the work returns: the game, the ledger, the balance.
-pub fn payout_panel(
-    ui: &mut egui::Ui,
-    pi: &pool::PoolInfo,
-    has_ledger: bool,
-    solo: bool,
-    mhs: f64,
-    running: bool,
-    // all_time: accepted shares and hashes across every run, ever.
-    all_time: (u64, u64),
-    // target_h: the height this panel must come out at. 0 = content decides.
-    target_h: f32,
-) {
+/// Everything the payout panel reads.
+pub struct Payout<'a> {
+    pub pi: &'a pool::PoolInfo,
+    pub has_ledger: bool,
+    pub solo: bool,
+    pub mhs: f64,
+    pub running: bool,
+    /// Accepted shares, hashes, and shares mined for development across
+    /// every run, ever.
+    pub all_time: (u64, u64, u64),
+    /// The height this panel must come out at. 0 = the content decides.
+    pub target_h: f32,
+}
+
+pub fn payout_panel(ui: &mut egui::Ui, v: &Payout) {
+    let Payout { pi, has_ledger, solo, mhs, running, all_time, target_h } = *v;
     ui.horizontal(|ui| {
         caps(ui, "the payout", 10.5, MUTE);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -123,6 +131,11 @@ pub fn payout_panel(
         ui.add_space(5.0);
         card_row(ui, "shares", &all_time.0.to_string());
         card_row(ui, "hashed", &human(all_time.1));
+        // The development share is stated where the earnings are, not buried
+        // in a log — 1 share in 20, and you can see the count.
+        if all_time.2 > 0 {
+            card_row(ui, "to development", &all_time.2.to_string());
+        }
     }
     let _ = target_h;
 }
