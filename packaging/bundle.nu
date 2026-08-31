@@ -8,7 +8,9 @@
 
 def main [] {
     let root = ($env.FILE_PWD | path dirname)
-    let ver = "0.23.0"
+    # Read the version rather than repeat it: a hardcoded copy here shipped a
+    # dmg labelled 0.23.0 out of a 0.24.0 build.
+    let ver = (open ($root | path join "cli/Cargo.toml") | get package.version)
     let dist = ($env.FILE_PWD | path join "dist")
     let app = ($dist | path join "erga.app")
 
