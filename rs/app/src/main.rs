@@ -23,13 +23,13 @@ mod store;
 mod stats;
 
 use eframe::egui;
-use egui::{Align2, Color32, FontId, Sense, Vec2};
+use egui::{Color32, Vec2};
 
 use balance::BalanceState;
 use panels::{machine_panel, payout_panel};
 use purse::{action_bar, backup_screen, wallet_block};
 use theme::{badge, caps, load_icon, pill_toggle, play_bold, setup_fonts, setup_style};
-use widgets::{big_balance, draw_crystal, hero_rate, human, panel_frame, start_hint};
+use widgets::{big_balance, crystal_button, human, panel_frame, start_hint};
 use miner::Miner;
 
 // Colour is a language here, not decoration. Nothing is given a colour it
@@ -154,6 +154,9 @@ struct App {
     pool: pool::PoolState,
     pool_idx: usize,
     wallet: Result<erga_wallet::Wallet, String>,
+    /// Whether the window had focus last frame, so the click that merely
+    /// brings it forward can be swallowed.
+    was_focused: bool,
     /// The menu-bar item, built on the first frame: macOS wants it made on
     /// the main thread, and this is the only place guaranteed to be one.
     tray: Option<tray::Tray>,
@@ -194,6 +197,7 @@ impl App {
             pool,
             pool_idx: idx,
             wallet,
+            was_focused: true,
             tray: None,
             tray_tried: false,
             pressed_at: None,
@@ -270,6 +274,20 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // macOS convention: the click that activates a window does not also
+        // act on it. Without this, clicking erga to bring it forward lands on
+        // whatever sits under the pointer — and with the action bar at the
+        // foot of the window, that is how a seed screen opens unasked.
+        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        let just_focused = focused && !self.was_focused;
+        self.was_focused = focused;
+        if just_focused {
+            ctx.input_mut(|i| {
+                i.events
+                    .retain(|e| !matches!(e, egui::Event::PointerButton { .. }));
+                i.pointer = Default::default();
+            });
+        }
         if self.autostart() && self.session_start.is_none() && !self.miner.is_running() {
             self.begin();
         }
@@ -406,6 +424,16 @@ impl eframe::App for App {
                 ui.label(job);
                 ui.add_space(8.0);
                 caps(ui, &format!("v{}", env!("CARGO_PKG_VERSION")), 9.5, MUTE.gamma_multiply(0.85));
+                ui.add_space(16.0);
+                // The run's own state belongs with the other facts about this
+                // run, not floating under the crystal between two unrelated
+                // things.
+                caps(
+                    ui,
+                    &self.miner.p.status.lock().unwrap(),
+                    9.5,
+                    if running { MINT.gamma_multiply(0.8) } else { MUTE },
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // ComboBox takes its height from interact_size; the badge
                     // takes CTRL_H. Same number, so the row cannot step.
@@ -502,7 +530,7 @@ impl eframe::App for App {
                 // Only the status line sits under the crystal now — the rate
                 // moved inside it. A giant number below competed with the
                 // balance above and, kept centred, left no room for either.
-                let rate_h = 54.0;
+                let rate_h = 18.0;
                 let cr = (cw * 0.34)
                     .min(band_h / 2.0 - rate_h)
                     .clamp(110.0, 250.0);
@@ -538,51 +566,9 @@ impl eframe::App for App {
                         ui.add_space(((band_h / 2.0) - cr - head_h).max(4.0));
                         big_balance(ui, on_chain, cw);
                         ui.add_space(34.0);
-                        let (rect, resp) =
-                            ui.allocate_exact_size(Vec2::new(cw, cr * 2.0), Sense::click());
-                        draw_crystal(ui, rect.center(), cr * press, running, self.spin, resp.hovered());
-                        // Mining, the crystal *is* the readout: the rate lives
-                        // where the label was, because a filled crystal has
-                        // already said "mining".
-                        if running {
-                            let c = rect.center();
-                            ui.painter().text(
-                                c - Vec2::new(0.0, cr * 0.06),
-                                Align2::CENTER_CENTER,
-                                format!("{mhs:.1}"),
-                                play_bold((cr * 0.42).clamp(34.0, 88.0)),
-                                BG,
-                            );
-                            ui.painter().text(
-                                c + Vec2::new(0.0, cr * 0.30),
-                                Align2::CENTER_CENTER,
-                                "MH/S",
-                                FontId::proportional((cr * 0.10).clamp(11.0, 18.0)),
-                                BG.gamma_multiply(0.75),
-                            );
-                        } else {
-                            ui.painter().text(
-                                rect.center(),
-                                Align2::CENTER_CENTER,
-                                "START",
-                                FontId::proportional((cr * 0.19).clamp(22.0, 38.0)),
-                                MINT,
-                            );
-                        }
-                        if resp.clicked() {
+                        if crystal_button(ui, cw, cr, running, self.spin, press, mhs) {
                             start_stop = true;
                         }
-                        if resp.hovered() {
-                            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
-                        }
-                        ui.add_space(12.0);
-                        ui.vertical_centered(|ui| {
-                            ui.label(
-                                egui::RichText::new(p.status.lock().unwrap().clone())
-                                    .color(MUTE)
-                                    .size(12.5),
-                            );
-                        });
                     });
                     ui.add_space(gap);
                     ui.vertical(|ui| {
@@ -618,28 +604,9 @@ impl eframe::App for App {
                         ui.add_space(12.0);
                         big_balance(ui, on_chain, col_w);
                         ui.add_space(26.0);
-                        let (rect, resp) = ui.allocate_at_least(
-                            Vec2::new(ui.available_width(), cr * 2.25),
-                            Sense::click(),
-                        );
-                        draw_crystal(ui, rect.center(), cr * press, running, self.spin, resp.hovered());
-                        ui.painter().text(
-                            rect.center(),
-                            Align2::CENTER_CENTER,
-                            if running { "MINING" } else { "START" },
-                            FontId::proportional((cr * 0.2).clamp(20.0, 32.0)),
-                            if running { BG } else { MINT },
-                        );
-                        if resp.clicked() {
+                        if crystal_button(ui, ui.available_width(), cr, running, self.spin, press, mhs) {
                             start_stop = true;
                         }
-                        if resp.hovered() {
-                            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
-                        }
-                        ui.add_space(4.0);
-                        ui.vertical_centered(|ui| {
-                            hero_rate(ui, mhs, running, &p, 58.0);
-                        });
                         ui.add_space(16.0);
                         wallet_block(ui, addr_opt.as_deref());
                         ui.add_space(14.0);

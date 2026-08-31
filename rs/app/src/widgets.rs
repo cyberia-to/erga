@@ -3,9 +3,7 @@
 //! frame, the crystal, and the two numbers that carry the story.
 
 use eframe::egui;
-use egui::{Color32, Pos2, Sense, Stroke, Vec2};
-use erga_miner::engine::Progress;
-use std::sync::Arc;
+use egui::{Align2, Color32, FontId, Pos2, Sense, Stroke, Vec2};
 
 use crate::theme::{caps, play_bold};
 use crate::{BG, CREAM, MINT, MUTE};
@@ -193,27 +191,6 @@ pub fn big_balance(ui: &mut egui::Ui, on_chain: Option<f64>, w: f32) {
     });
 }
 
-/// The hero number: the live hashrate, the biggest thing on the screen
-/// after the crystal itself.
-pub fn hero_rate(ui: &mut egui::Ui, mhs: f64, running: bool, p: &Arc<Progress>, size: f32) {
-    ui.vertical_centered(|ui| {
-        let text = if running { format!("{mhs:.1}") } else { "—".to_string() };
-        let mut job = egui::text::LayoutJob::default();
-        job.append(
-            &text,
-            0.0,
-            egui::TextFormat { font_id: play_bold(size), color: MINT, ..Default::default() },
-        );
-        ui.label(job);
-        caps(ui, "mh/s", 11.0, MUTE);
-        ui.add_space(2.0);
-        ui.label(
-            egui::RichText::new(p.status.lock().unwrap().clone())
-                .color(MUTE)
-                .size(11.5),
-        );
-    });
-}
 
 /// The invitation to start, at the top of the window. It breathes rather
 /// than blinks: a slow sine on the alpha, so it draws the eye without
@@ -238,4 +215,51 @@ pub fn human(n: u64) -> String {
     } else {
         format!("{n}")
     }
+}
+
+/// The crystal as a button, with the readout inside it. Both layouts draw the
+/// same object; only its size differs, so only its size is a parameter.
+/// Returns true when it was pressed.
+pub fn crystal_button(
+    ui: &mut egui::Ui,
+    w: f32,
+    cr: f32,
+    running: bool,
+    spin: f32,
+    press: f32,
+    mhs: f64,
+) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, cr * 2.0), Sense::click());
+    draw_crystal(ui, rect.center(), cr * press, running, spin, resp.hovered());
+    // Mining, the crystal *is* the readout: the rate lives where the label
+    // was, because a filled crystal has already said "mining".
+    let c = rect.center();
+    if running {
+        ui.painter().text(
+            c - Vec2::new(0.0, cr * 0.06),
+            Align2::CENTER_CENTER,
+            format!("{mhs:.1}"),
+            play_bold((cr * 0.42).clamp(34.0, 88.0)),
+            BG,
+        );
+        ui.painter().text(
+            c + Vec2::new(0.0, cr * 0.30),
+            Align2::CENTER_CENTER,
+            "MH/S",
+            FontId::proportional((cr * 0.10).clamp(11.0, 18.0)),
+            BG.gamma_multiply(0.75),
+        );
+    } else {
+        ui.painter().text(
+            c,
+            Align2::CENTER_CENTER,
+            "START",
+            FontId::proportional((cr * 0.19).clamp(22.0, 38.0)),
+            MINT,
+        );
+    }
+    if resp.hovered() {
+        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+    }
+    resp.clicked()
 }

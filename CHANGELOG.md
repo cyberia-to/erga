@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.19.0] — 2026-08-31
+
+### Fixed
+
+- The seed screen opening unasked. A click that only brings the window forward
+  was landing on whatever sat under the pointer, and the action bar is at the
+  foot of the window. The guard for this was written once before and lost to a
+  `git checkout` during the module split, along with the seed screen's timer —
+  both are back, and this time verified by reproducing the bug first.
+
+### Changed
+
+- The run's status moved into the header, beside the version, where the other
+  facts about this run already live.
+- The crystal button is one function instead of two copies, and the narrow
+  layout uses the same readout as the wide one. `hero_rate` is gone with them.
+
+### Measured, and settled
+
+- `gpu.buffer()` is already `MTLResourceStorageModeShared`: the epoch table is
+  zero-copy today, CPU and GPU reading the same pages. There is no copy to
+  remove.
+- The build runs at **1.45 G Blake2b compressions/s**, against `blake-bench`'s
+  peak of 0.893 G *hashes*/s — so the kernel is already **1.6× more efficient
+  per compression** than the standalone benchmark, by amortising setup across
+  65 blocks and keeping state in registers. (An earlier note here quoted
+  1.6 GH/s for that peak from memory; the bench says 893 MH/s.)
+- Hybrid CPU+GPU build: the CPU adds 1.29 M elem/s to the GPU's 22.3 M, taking
+  the build 10.2 s → 9.6 s. The build is 8.5% of a block period, so that is
+  **+0.46% mining time** for sixteen cores at full tilt — against a project
+  whose headline is MH/W.
+- CPU prebuilding the next table while the GPU mines: the CPU needs **176 s**
+  per table against a 120 s block time. It cannot keep up even in principle.
+
+
 ## [0.18.0] — 2026-08-31
 
 ### Changed
