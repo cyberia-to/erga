@@ -27,6 +27,10 @@ const BG: Color32 = Color32::from_rgb(3, 5, 4); // near-black with a faint green
 const MINT: Color32 = Color32::from_rgb(125, 255, 196);
 const CREAM: Color32 = Color32::from_rgb(235, 245, 240);
 const MUTE: Color32 = Color32::from_rgb(90, 110, 100);
+/// Every pill in the header is exactly this tall. egui sizes a ComboBox from
+/// `interact_size` and a bare shape from whatever you allocate, so matching
+/// the two by formula does not hold — pinning both to one number does.
+const CTRL_H: f32 = 23.0;
 
 fn main() -> eframe::Result<()> {
     // `erga mine [host] [port] [address]` mines headless — same engine, no
@@ -329,6 +333,9 @@ impl eframe::App for App {
                 ui.add_space(4.0);
                 caps(ui, "ergo miner", 10.5, MUTE);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // ComboBox takes its height from interact_size; the badge
+                    // takes CTRL_H. Same number, so the row cannot step.
+                    ui.spacing_mut().interact_size.y = CTRL_H;
                     ui.add_space(22.0);
                     badge(ui, "experimental");
                     ui.add_space(8.0);
@@ -343,19 +350,16 @@ impl eframe::App for App {
                             }
                         });
                     if pools::has_solo(self.pool_idx) {
-                        let was = self.store.solo;
-                        ui.checkbox(&mut self.store.solo, egui::RichText::new("solo").size(10.5))
-                            .on_hover_text(
-                                "the pool still builds the block; solo only changes who keeps it \
-                                 — whole blocks instead of a share of every one",
-                            );
-                        if self.store.solo != was {
+                        let mut solo_on = self.store.solo;
+                        if pill_toggle(ui, "solo", &mut solo_on) {
+                            self.store.solo = solo_on;
                             self.store.save();
                             if running {
                                 self.end();
                                 self.begin();
                             }
                         }
+                        ui.add_space(8.0);
                     }
                     if self.pool_idx != prev {
                         pools::save_choice(self.pool_idx);
@@ -567,11 +571,44 @@ impl eframe::App for App {
 /// A pill that sits level with the buttons beside it. egui sizes a button as
 /// max(interact_size.y, text + 2*button_padding.y); matching that formula —
 /// and the button font — is what keeps the header from stepping.
+/// A pill that toggles, drawn to the same metric as `badge` so the header
+/// reads as one row. egui's checkbox draws a circle and a label, which is a
+/// different shape language from the controls beside it.
+fn pill_toggle(ui: &mut egui::Ui, text: &str, on: &mut bool) -> bool {
+    let galley = ui.painter().layout_no_wrap(
+        text.into(),
+        FontId::proportional(10.5),
+        if *on { BG } else { MINT },
+    );
+    let pad = ui.spacing().button_padding;
+    let size = Vec2::new(galley.size().x + pad.x * 2.0, CTRL_H);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let hot = resp.hovered();
+    if *on {
+        ui.painter().rect_filled(rect, 999.0, MINT.gamma_multiply(if hot { 1.0 } else { 0.88 }));
+    } else if hot {
+        ui.painter().rect_filled(rect, 999.0, MINT.gamma_multiply(0.10));
+    }
+    ui.painter().rect_stroke(
+        rect,
+        999.0,
+        Stroke::new(1.0, MINT.gamma_multiply(if *on || hot { 0.95 } else { 0.45 })),
+    );
+    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, MINT);
+    if hot {
+        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        *on = !*on;
+        return true;
+    }
+    false
+}
+
 fn badge(ui: &mut egui::Ui, text: &str) {
     let galley = ui.painter().layout_no_wrap(text.into(), FontId::proportional(10.5), MINT);
     let pad = ui.spacing().button_padding;
-    let h = ui.spacing().interact_size.y.max(galley.size().y + pad.y * 2.0);
-    let size = Vec2::new(galley.size().x + pad.x * 2.0, h);
+    let size = Vec2::new(galley.size().x + pad.x * 2.0, CTRL_H);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter().rect_stroke(rect, 999.0, Stroke::new(1.0, MINT.gamma_multiply(0.5)));
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, MINT);
