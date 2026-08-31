@@ -28,13 +28,24 @@ pub struct Pool {
     pub host: &'static str,
     pub port: u16,
     pub ledger: Ledger,
-    /// Prefixed to the address at authorize time — herominers routes solo
-    /// that way. Empty for pools that use a separate solo endpoint instead.
-    pub prefix: &'static str,
-    /// Solo: whole blocks or nothing, so the shared-payout bar is meaningless.
-    pub solo: bool,
     /// The pool's minimum payout in ERG, for the times its API will not say.
     pub payout_erg: f64,
+    /// How this pool does solo, if it does at all.
+    pub solo: Option<Solo>,
+}
+
+/// Solo *at a pool* is not solo with your own node. The pool still builds the
+/// block candidate, still runs the stratum, still takes its fee — only the
+/// accounting changes: whoever solves the block keeps it instead of sharing
+/// it. (Real solo means running an Ergo node and mining its own candidate;
+/// erga does not do that yet.) Pools implement the switch differently, and
+/// that difference is nobody's business but this module's.
+#[derive(Clone, Copy)]
+pub enum Solo {
+    /// Routed by prefixing the address — herominers.
+    Prefix(&'static str),
+    /// Routed to a separate server — 2miners.
+    Endpoint(&'static str, u16),
 }
 
 pub const POOLS: &[Pool] = &[
@@ -43,36 +54,16 @@ pub const POOLS: &[Pool] = &[
         host: "ergo.herominers.com",
         port: 1180,
         ledger: Ledger::Herominers,
-        prefix: "",
-        solo: false,
         payout_erg: 0.5,
-    },
-    Pool {
-        label: "herominers · solo",
-        host: "ergo.herominers.com",
-        port: 1180,
-        ledger: Ledger::Herominers,
-        prefix: "solo:",
-        solo: true,
-        payout_erg: 0.5,
+        solo: Some(Solo::Prefix("solo:")),
     },
     Pool {
         label: "2miners",
         host: "erg.2miners.com",
         port: 8888,
         ledger: Ledger::TwoMiners,
-        prefix: "",
-        solo: false,
         payout_erg: 1.0,
-    },
-    Pool {
-        label: "2miners · solo",
-        host: "solo-erg.2miners.com",
-        port: 8888,
-        ledger: Ledger::TwoMiners,
-        prefix: "",
-        solo: true,
-        payout_erg: 1.0,
+        solo: Some(Solo::Endpoint("solo-erg.2miners.com", 8888)),
     },
     // k1pool (eu.erg.k1pool.com:3746) is deliberately absent. It speaks the
     // dialect — it sends jobs this client parses — but after minutes of
@@ -88,6 +79,21 @@ pub fn has_ledger(idx: usize) -> bool {
 
 pub fn get(idx: usize) -> &'static Pool {
     POOLS.get(idx).unwrap_or(&POOLS[0])
+}
+
+/// Where to connect and what to call yourself, for this pool in this mode.
+pub fn endpoint(idx: usize, solo: bool) -> (&'static str, u16, &'static str) {
+    let p = get(idx);
+    match (solo, p.solo) {
+        (true, Some(Solo::Prefix(pre))) => (p.host, p.port, pre),
+        (true, Some(Solo::Endpoint(h, port))) => (h, port, ""),
+        _ => (p.host, p.port, ""),
+    }
+}
+
+/// Can this pool mine solo at all?
+pub fn has_solo(idx: usize) -> bool {
+    get(idx).solo.is_some()
 }
 
 fn config_path() -> Option<PathBuf> {

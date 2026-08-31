@@ -128,8 +128,7 @@ Other things it does because they matter more than they look:
 - **auto-reconnects** — a dropped pool or a network blip retries instead of
   ending the session
 - **pool chooser** — herominers (default: 0.5 ERG floor, the lowest verified)
-  and 2miners, each with a solo variant, and each showing its own ledger
-  inside the app. A pool is listed only after this client has held a real
+  and 2miners, each showing its own ledger inside the app. A pool is listed only after this client has held a real
   conversation with it; regions are absent on purpose, since every pool
   routes you to its own nearest server and latency costs at most a stale
   share
@@ -140,9 +139,13 @@ Other things it does because they matter more than they look:
 - **shows an effective hashrate** next to the live one: the same hashes
   averaged over the whole session, so the seconds spent rebuilding the table
   each block are counted honestly
-- **solo, if you want the lottery** — pick a `· solo` entry in the chooser:
-  whole blocks or nothing, and the payout bar is replaced by the only number
-  that means anything there — how long a block takes at your rate
+- **solo, if you want the lottery** — a switch beside the pool, wherever the
+  pool offers it. Note what it is: the pool still builds the block and still
+  takes its fee, and only the accounting changes — whoever solves the block
+  keeps it instead of sharing every one. (Solo with *your own node* is a
+  different thing, and erga does not do it yet.) The payout bar is replaced
+  by the number that actually means something there: how long a block takes
+  at your rate
 - **keeps a log** at `~/Library/Logs/erga/erga.log`, one click away under
   `logs`, so a problem can be reported with evidence
 

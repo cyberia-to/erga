@@ -225,11 +225,15 @@ impl App {
             self.miner.p.set_status("wallet unavailable");
             return;
         };
-        let pool = pools::get(self.pool_idx);
-        let addr = format!("{}{addr}", pool.prefix);
-        store::log(&format!("start pool={} {}:{}", pool.label, pool.host, pool.port));
+        let solo = self.solo();
+        let (host, port, prefix) = pools::endpoint(self.pool_idx, solo);
+        let addr = format!("{prefix}{addr}");
+        store::log(&format!(
+            "start pool={} {host}:{port} solo={solo}",
+            pools::get(self.pool_idx).label
+        ));
         self.session_start = Some(std::time::Instant::now());
-        self.miner.start(addr, pool.host, pool.port);
+        self.miner.start(addr, host, port);
     }
 
     /// Stop mining and fold this session's counters into the all-time totals.
@@ -250,6 +254,11 @@ impl App {
         self.store.save();
         self.session_start = None;
         store::log(&format!("stop accepted={a} rejected={r} donated={d} hashed={h}"));
+    }
+
+    /// Solo only counts where the chosen pool offers it.
+    fn solo(&self) -> bool {
+        self.store.solo && pools::has_solo(self.pool_idx)
     }
 
     fn address(&self) -> Option<&str> {
@@ -333,6 +342,21 @@ impl eframe::App for App {
                                 ui.selectable_value(&mut self.pool_idx, i, pl.label);
                             }
                         });
+                    if pools::has_solo(self.pool_idx) {
+                        let was = self.store.solo;
+                        ui.checkbox(&mut self.store.solo, egui::RichText::new("solo").size(10.5))
+                            .on_hover_text(
+                                "the pool still builds the block; solo only changes who keeps it \
+                                 — whole blocks instead of a share of every one",
+                            );
+                        if self.store.solo != was {
+                            self.store.save();
+                            if running {
+                                self.end();
+                                self.begin();
+                            }
+                        }
+                    }
                     if self.pool_idx != prev {
                         pools::save_choice(self.pool_idx);
                         // the new pool keeps its own books
@@ -364,7 +388,7 @@ impl eframe::App for App {
             let (cpu, mem, net_kbs) = (self.sys.cpu, self.sys.mem, self.sys.down_kbs);
             let on_chain = self.balance.inner.lock().unwrap().erg;
             let has_ledger = pools::has_ledger(self.pool_idx);
-            let solo = pools::get(self.pool_idx).solo;
+            let solo = self.solo();
             let addr_opt = self.address().map(|a| a.to_string());
             let mut want_backup = false;
             let mut start_stop = false;
