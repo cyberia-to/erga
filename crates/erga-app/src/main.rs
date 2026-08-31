@@ -418,22 +418,25 @@ impl eframe::App for App {
             let mut want_backup = false;
             let mut want_report = false;
             let mut start_stop = false;
-            let pool_label = pools::POOLS[self.pool_idx].label;
 
             let wide = avail_w >= 1000.0;
             if wide {
                 // ── the HUD: crystal sun, panels in orbit ─────────────
                 let side = 40.0;
-                let (lw, rw, gap) = (320.0, 380.0, 30.0);
-                let cw = (avail_w - side * 2.0 - lw - rw - gap * 2.0 - 48.0).max(260.0);
+                // The two panels are the same object seen twice — what it
+                // costs on the left, what it returns on the right — so they
+                // get the same width and the same height, and the balance
+                // grows to take whatever slack the right one has.
+                let (pw, gap) = (360.0, 30.0);
+                let cw = (avail_w - side * 2.0 - pw * 2.0 - gap * 2.0 - 48.0).max(260.0);
                 let cr = (cw * 0.34).min(avail_h * 0.22).clamp(120.0, 240.0);
-                // the centre column: crystal block + the hero rate beneath it
                 let centre_h = cr * 2.05 + 120.0;
-                ui.add_space(((avail_h - centre_h - 210.0) / 2.0).max(10.0));
+                let panel_h = centre_h.max(340.0);
+                ui.add_space(((avail_h - centre_h - 150.0) / 2.0).max(10.0));
 
                 ui.horizontal(|ui| {
                     ui.add_space(side);
-                    panel_frame(ui, lw, 0.0, |ui| {
+                    panel_frame(ui, pw, panel_h, |ui| {
                         machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs, all_time);
                     });
                     ui.add_space(gap);
@@ -458,18 +461,17 @@ impl eframe::App for App {
                         }
                         ui.add_space(10.0);
                         hero_rate(ui, mhs, running, &p, (cr * 0.44).clamp(52.0, 76.0));
+                        // the wallet belongs with the button that fills it
+                        ui.add_space(18.0);
+                        wallet_block(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
                     });
                     ui.add_space(gap);
-                    panel_frame(ui, rw, 0.0, |ui| {
+                    panel_frame(ui, pw, panel_h, |ui| {
                         let pi = self.pool.inner.lock().unwrap();
-                        payout_panel(ui, &pi, has_ledger, solo, on_chain, mhs, running, &p);
+                        payout_panel(ui, &pi, has_ledger, solo, on_chain, mhs, running, panel_h - 32.0);
                     });
                 });
 
-                ui.add_space(18.0);
-                if let Some(addr) = &addr_opt {
-                    wallet_strip(ui, addr, avail_w, &mut want_backup, &mut want_report);
-                }
             } else {
                 // ── narrow: the same organs, stacked on one axis ──────
                 let col_w = (avail_w - 44.0).min(600.0);
@@ -502,6 +504,8 @@ impl eframe::App for App {
                             hero_rate(ui, mhs, running, &p, 58.0);
                         });
                         ui.add_space(16.0);
+                        wallet_block(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
+                        ui.add_space(18.0);
 
                         ui.horizontal(|ui| {
                             ui.add_space(side);
@@ -513,17 +517,9 @@ impl eframe::App for App {
                                 ui.add_space(12.0);
                                 panel_frame(ui, col_w, 0.0, |ui| {
                                     let pi = self.pool.inner.lock().unwrap();
-                                    payout_panel(ui, &pi, has_ledger, solo, on_chain, mhs, running, &p);
+                                    payout_panel(ui, &pi, has_ledger, solo, on_chain, mhs, running, 0.0);
                                 });
                                 ui.add_space(14.0);
-                                if let Some(addr) = &addr_opt {
-                                    wallet_strip(ui, addr, col_w, &mut want_backup, &mut want_report);
-                                }
-                                ui.add_space(14.0);
-                                ui.vertical_centered(|ui| {
-                                    honest_footer(ui, pool_label);
-                                });
-                                ui.add_space(12.0);
                             });
                         });
                     });
@@ -606,10 +602,6 @@ impl eframe::App for App {
             // the footer rides at the bottom only in the wide HUD; in the
             // narrow layout it lives inside the scroll, after the content.
             if wide {
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                    ui.add_space(12.0);
-                    honest_footer(ui, pools::POOLS[self.pool_idx].label);
-                });
             }
         });
     }
@@ -715,13 +707,20 @@ fn meter(ui: &mut egui::Ui, label: &str, mine: f32, total: f32, val: &str, tint:
     });
 }
 
-/// A bordered panel. `min_h` of 0 lets the panel size to its content.
-fn panel_frame(
-    ui: &mut egui::Ui,
-    w: f32,
-    min_h: f32,
-    add: impl FnOnce(&mut egui::Ui),
-) {
+/// A bordered panel. When `h` is given the content area is allocated at
+/// exactly that size — not merely *at least* it — because a minimum only
+/// stops a panel shrinking, and the one on the right grows from the bottom.
+/// Two panels that must look like one object have to be told the same size,
+/// A bordered panel. With a height given, the rectangle is allocated and
+/// stroked directly and the content is drawn inside it, clipped. Asking a
+/// layout for a size is a request; taking the rectangle is a guarantee —
+/// and two panels that read as one object must be the same size exactly,
+/// A bordered panel. With a height given the content ui is *fixed* to it —
+/// `set_height`, not `set_min_height` — which does two things at once: the
+/// two panels end up identical, and `available_height` inside becomes a
+/// finite number, so a bottom-anchored child can pin itself without any
+/// spacer arithmetic to overshoot.
+fn panel_frame(ui: &mut egui::Ui, w: f32, h: f32, add: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::none()
         .stroke(Stroke::new(1.0, MINT.gamma_multiply(0.22)))
         .rounding(14.0)
@@ -729,8 +728,8 @@ fn panel_frame(
         .show(ui, |ui| {
             ui.vertical(|ui| {
                 ui.set_width(w - 36.0);
-                if min_h > 0.0 {
-                    ui.set_min_height(min_h - 32.0);
+                if h > 0.0 {
+                    ui.set_height(h - 32.0);
                 }
                 add(ui);
             });
@@ -847,7 +846,9 @@ fn payout_panel(
     on_chain: Option<f64>,
     mhs: f64,
     running: bool,
-    p: &Arc<Progress>,
+    // target_h: the height this panel must come out at, so the balance can
+    // take the slack. 0 = let the content decide (the narrow layout).
+    target_h: f32,
 ) {
     ui.horizontal(|ui| {
         caps(ui, "the payout", 10.5, MUTE);
@@ -873,83 +874,103 @@ fn payout_panel(
         caps(ui, "reading the pool ledger…", 9.5, MUTE);
     }
 
-    // the development donation, always visible, never hidden
-    let donated = p.donated.load(std::sync::atomic::Ordering::Relaxed);
-    ui.add_space(4.0);
-    card_row(ui, "to development", &format!("{donated} shares (5%)"));
-
     ui.add_space(12.0);
     ui.separator();
     ui.add_space(10.0);
+    // The balance takes whatever height is left over. The spacer is measured
+    // from what the panel has *used* (`min_rect`), not from what it thinks is
+    // available — the latter is unbounded here and overshoots, which is what
+    // left the two panels 62px apart.
+    const FOOT: f32 = 96.0; // separator + label + the number
+    if target_h > 0.0 {
+        let used = ui.min_rect().height();
+        ui.add_space((target_h - used - FOOT).max(10.0));
+    } else {
+        ui.add_space(14.0);
+    }
+    ui.separator();
+    ui.add_space(9.0);
     caps(ui, "your balance on chain", 9.5, MUTE);
-    ui.add_space(4.0);
+    ui.add_space(3.0);
+    let (text, dim) = match on_chain {
+        Some(e) => (format!("{e:.4}"), e <= 0.0),
+        None => ("0.0000".to_string(), true),
+    };
+    let colour = if dim { MINT.gamma_multiply(0.6) } else { MINT };
+    // the one number here that can grow without bound, so the one allowed to
+    // shrink its own type rather than spill out of the panel
+    let avail = (ui.available_width() - 52.0).max(60.0);
+    let mut size = 42.0f32;
+    while size > 15.0 {
+        let g = ui.painter().layout_no_wrap(text.clone(), play_bold(size), colour);
+        if g.size().x <= avail {
+            break;
+        }
+        size -= 1.5;
+    }
     ui.horizontal(|ui| {
-        let (text, dim) = match on_chain {
-            Some(e) => (format!("{e:.4}"), false),
-            None => ("0.0000".to_string(), true),
-        };
         let mut job = egui::text::LayoutJob::default();
         job.append(
             &text,
             0.0,
-            egui::TextFormat {
-                font_id: play_bold(34.0),
-                color: if dim { MINT.gamma_multiply(0.6) } else { MINT },
-                ..Default::default()
-            },
+            egui::TextFormat { font_id: play_bold(size), color: colour, ..Default::default() },
         );
         ui.label(job);
-        ui.add_space(3.0);
+        ui.add_space(6.0);
         caps(ui, "erg", 11.0, MUTE);
     });
 }
 
-/// What the app is honestly doing, in two quiet lines.
-fn honest_footer(ui: &mut egui::Ui, pool_label: &str) {
-    caps(ui, "every share re-verified on-cpu before it is sent", 8.5, MUTE.gamma_multiply(0.8));
-    ui.add_space(2.0);
-    caps(
-        ui,
-        &format!("mines autolykos v2 to {pool_label} under your address"),
-        8.5,
-        MUTE.gamma_multiply(0.8),
-    );
-    ui.add_space(2.0);
-    caps(ui, "5% of shares fund development", 8.5, MUTE.gamma_multiply(0.8));
-}
 
 /// The wallet strip — identity, present but out of the game's way.
-fn wallet_strip(
+/// The wallet, directly under the button that fills it: the address large
+/// enough to read across a room, and the two things you actually do with it.
+fn wallet_block(
     ui: &mut egui::Ui,
-    addr: &str,
-    w: f32,
+    addr: Option<&str>,
     want_backup: &mut bool,
     want_report: &mut bool,
 ) {
-    ui.horizontal(|ui| {
-        ui.add_space(((ui.available_width() - w.min(660.0)) / 2.0).max(0.0));
-        caps(ui, "wallet", 9.5, MUTE);
-        ui.add_space(10.0);
+    let Some(addr) = addr else {
+        ui.vertical_centered(|ui| {
+            ui.label(
+                egui::RichText::new("wallet unavailable — could not read the seed file")
+                    .color(CORAL)
+                    .size(12.0),
+            );
+        });
+        return;
+    };
+    ui.vertical_centered(|ui| {
+        caps(ui, "your wallet", 9.5, MUTE);
+        ui.add_space(6.0);
         ui.label(
             egui::RichText::new(addr)
                 .monospace()
-                .size(10.5)
-                .color(CREAM.gamma_multiply(0.72)),
+                .size(13.0)
+                .color(CREAM.gamma_multiply(0.9)),
         );
-        ui.add_space(8.0);
-        if ui.button(egui::RichText::new("copy").size(10.0)).clicked() {
-            ui.output_mut(|o| o.copied_text = addr.to_string());
-        }
-        if ui.button(egui::RichText::new("back up").size(10.0)).clicked() {
-            *want_backup = true;
-        }
-        if ui
-            .button(egui::RichText::new("report a bug").size(10.0))
-            .on_hover_text("opens a GitHub issue with your machine, the app state and the recent log already filled in")
-            .clicked()
-        {
-            *want_report = true;
-        }
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            // centre the row of actions under the address
+            let w = 300.0;
+            ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
+            if ui.button(egui::RichText::new("copy").size(10.5)).clicked() {
+                ui.output_mut(|o| o.copied_text = addr.to_string());
+            }
+            if ui.button(egui::RichText::new("back up").size(10.5)).clicked() {
+                *want_backup = true;
+            }
+            if ui
+                .button(egui::RichText::new("report a bug").size(10.5))
+                .on_hover_text(
+                    "opens a GitHub issue with your machine, the app state and the recent log already filled in",
+                )
+                .clicked()
+            {
+                *want_report = true;
+            }
+        });
     });
 }
 
