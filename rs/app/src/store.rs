@@ -76,6 +76,27 @@ fn encode(s: &str) -> String {
     out
 }
 
+/// The issue body: the question, the machine, the live state, the log tail.
+/// Separate from `report_bug` so it can be tested without opening a browser —
+/// source indentation once leaked in here and turned the table into a code
+/// block, which is invisible until someone files a real issue.
+fn report_body(os: &str, chip: &str, mem_gb: &str, state: &str, log: &str) -> String {
+    format!(
+        "**What happened?**\n\n\n\
+         **What did you expect?**\n\n\n\
+         ---\n\n\
+         | | |\n\
+         |---|---|\n\
+         | erga | {} |\n\
+         | macOS | {os} |\n\
+         | chip | {chip} |\n\
+         | memory | {mem_gb} |\n\n\
+         **State**\n\n```\n{state}\n```\n\n\
+         **Recent log**\n\n```\n{log}\n```\n",
+        env!("CARGO_PKG_VERSION"),
+    )
+}
+
 /// Open a prefilled GitHub issue: the facts that are always asked for are
 /// already in it, so a report costs one click instead of an interrogation.
 /// GitHub cannot take a file attachment through a URL, so the log tail is
@@ -87,11 +108,7 @@ pub fn report_bug(state: &str) {
         .parse::<u64>()
         .map(|b| format!("{:.0} GB", b as f64 / (1u64 << 30) as f64))
         .unwrap_or_default();
-    let body = format!(
-        "**What happened?**\n\n\n**What did you expect?**\n\n\n---\n\n         | | |\n|---|---|\n         | erga | {} |\n| macOS | {os} |\n| chip | {chip} |\n| memory | {mem_gb} |\n\n         **State**\n\n```\n{state}\n```\n\n**Recent log**\n\n```\n{}\n```\n",
-        env!("CARGO_PKG_VERSION"),
-        log_tail(40),
-    );
+    let body = report_body(&os, &chip, &mem_gb, state, &log_tail(40));
     // Keep well under what browsers and GitHub accept for a GET.
     let body: String = body.chars().take(5000).collect();
     let url = format!(
@@ -161,5 +178,35 @@ impl Store {
 
     pub fn save(&self) {
         self.save_with(0, 0, 0, 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Markdown turns any line indented four spaces into a code block. Source
+    /// indentation leaked into this template once and silently flattened the
+    /// environment table in every issue filed.
+    #[test]
+    fn report_body_has_no_indented_lines() {
+        let body = report_body("15.0", "Apple M4 Max", "48 GB", "mining", "a log line");
+        for line in body.lines() {
+            assert!(
+                !line.starts_with("    "),
+                "indented line would render as a code block: {line:?}"
+            );
+        }
+    }
+
+    /// The table must survive as a table: header, delimiter, then one row per
+    /// fact, each starting at column zero.
+    #[test]
+    fn report_body_keeps_the_table() {
+        let body = report_body("15.0", "Apple M4 Max", "48 GB", "mining", "log");
+        assert!(body.contains("\n|---|---|\n"), "delimiter row missing");
+        for row in ["| macOS | 15.0 |", "| chip | Apple M4 Max |", "| memory | 48 GB |"] {
+            assert!(body.contains(&format!("\n{row}\n")), "row missing: {row}");
+        }
     }
 }
