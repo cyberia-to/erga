@@ -48,6 +48,38 @@ fn donation() -> Option<(String, u64)> {
     Some((addr, every))
 }
 
+/// Where the share cadence is remembered between runs.
+fn cadence_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(
+        std::path::PathBuf::from(home)
+            .join("Library/Application Support/ai.cyber.erga")
+            .join("cadence"),
+    )
+}
+
+/// Shares still owed to you before the next development share.
+///
+/// This must survive process restarts. The miner is spawned afresh every time
+/// mining starts, so a counter that reset each run would mean a user who mines
+/// in bursts shorter than `every` shares never donates at all — the stated 1
+/// in 20 would quietly become 1 in never.
+fn load_owed(every: u64) -> u64 {
+    cadence_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(every - 1)
+        .min(every - 1)
+}
+
+fn save_owed(owed: u64) {
+    let Some(p) = cadence_path() else { return };
+    if let Some(dir) = p.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(p, owed.to_string());
+}
+
 pub struct Progress {
     pub running: AtomicBool,
     pub stop: AtomicBool,
@@ -122,8 +154,9 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
     // address that authorized it, so a share can only be credited to the
     // session that found it. We therefore alternate sessions rather than
     // relabel shares: 19 for you, 1 for development, and so on.
-    let mut owed_to_you: u64 = don.as_ref().map(|(_, every)| every - 1).unwrap_or(u64::MAX);
-    let mut donating = false;
+    // Resumed from disk, so bursts shorter than `every` still add up.
+    let mut owed_to_you: u64 = don.as_ref().map(|(_, every)| load_owed(*every)).unwrap_or(u64::MAX);
+    let mut donating = don.is_some() && owed_to_you == 0;
 
     while !p.stop.load(Ordering::Relaxed) {
         let (addr, mut quota) = match (&don, donating) {
@@ -142,6 +175,10 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
                             owed_to_you = don.as_ref().map(|(_, e)| e - 1).unwrap_or(u64::MAX);
                         } else if don.is_some() {
                             donating = true;
+                            owed_to_you = 0;
+                        }
+                        if don.is_some() {
+                            save_owed(owed_to_you);
                         }
                         continue; // switch immediately, no backoff
                     }
@@ -149,6 +186,9 @@ pub fn run(cfg: PoolCfg, p: Arc<Progress>) {
                         // keep the phase; remember what is still owed
                         if !donating {
                             owed_to_you = quota;
+                            if don.is_some() {
+                                save_owed(owed_to_you);
+                            }
                         }
                         p.set_status("pool disconnected — reconnecting…");
                     }
@@ -280,7 +320,7 @@ fn mine_session(
         let nonce_base = en1_prefix | (cursor & tail_mask);
         if let Some(nonce) = mn.scan(&msg, &target, nonce_base, batch) {
             let nb = nonce.to_be_bytes();
-            let hit = autolykos::pow_hit(&msg, &nb, &j.height.to_be_bytes(), mn.n, &m);
+            let hit = autolykos::pow_hit(&msg, &nb, &j.height.to_be_bytes(), mn.n, m);
             if hit < j.target_b {
                 let nonce_hex = hex(&nb);
                 let en2_hex = hex(&nb[en1.len()..]);
@@ -292,6 +332,12 @@ fn mine_session(
                     p.donated.fetch_add(1, Ordering::Relaxed);
                 }
                 *quota = quota.saturating_sub(1);
+                // Checkpoint the cadence the moment it moves. The app can be
+                // quit or killed between shares, and a forgotten count is a
+                // burst that silently never donates.
+                if !donating && *quota != u64::MAX {
+                    save_owed(*quota);
+                }
                 if *quota == 0 {
                     // give the pool a breath to answer before we switch away
                     std::thread::sleep(std::time::Duration::from_millis(400));
