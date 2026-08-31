@@ -205,7 +205,9 @@ struct App {
     pool: pool::PoolState,
     pool_idx: usize,
     wallet: Result<erga_wallet::Wallet, String>,
-    show_backup: bool,
+    /// When the seed screen was opened. It closes itself: a wallet seed
+    /// should not sit on a monitor because someone walked away.
+    backup_since: Option<std::time::Instant>,
     spin: f32,
     last_balance: std::time::Instant,
     sys: stats::Sys,
@@ -233,7 +235,7 @@ impl App {
             pool,
             pool_idx: idx,
             wallet,
-            show_backup: false,
+            backup_since: None,
             spin: 0.0,
             last_balance: std::time::Instant::now(),
             sys: stats::Sys::new(),
@@ -343,6 +345,23 @@ impl eframe::App for App {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            // The seed takes the whole window while it is up: it is not a
+            // dialog over the app, it is the only thing that should be on
+            // screen — and it puts itself away.
+            if let Some(since) = self.backup_since {
+                const LIFE: f32 = 10.0;
+                let left = LIFE - since.elapsed().as_secs_f32();
+                if left <= 0.0 {
+                    self.backup_since = None;
+                } else {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                    let seed = self.wallet.as_ref().ok().map(|w| w.mnemonic.clone());
+                    if backup_screen(ui, seed.as_deref(), left) {
+                        self.backup_since = None;
+                    }
+                    return;
+                }
+            }
             let avail_w = ui.available_width();
             ui.add_space(16.0);
 
@@ -633,7 +652,12 @@ impl eframe::App for App {
                 store::report_bug(&state);
             }
             if want_backup {
-                self.show_backup = true;
+                // Copy on open: the words are wanted *somewhere else*, and a
+                // person retyping fifteen of them from a screen makes mistakes.
+                if let Ok(w) = &self.wallet {
+                    ui.output_mut(|o| o.copied_text = w.mnemonic.clone());
+                }
+                self.backup_since = Some(std::time::Instant::now());
             }
             if start_stop {
                 if running {
@@ -643,43 +667,6 @@ impl eframe::App for App {
                 }
             }
 
-            // ── backup panel (reveal the seed once, with a warning) ────
-            if self.show_backup {
-                let mnemonic = self.wallet.as_ref().ok().map(|w| w.mnemonic.clone());
-                let mut close = false;
-                egui::Window::new("back up your seed")
-                    .collapsible(false)
-                    .resizable(false)
-                    .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
-                    .show(ctx, |ui| {
-                        ui.label(egui::RichText::new(
-                            "these 15 words ARE your wallet. anyone who sees them owns your\n\
-                             coins. write them on paper, never screenshot, never share.",
-                        ).color(Color32::from_rgb(255, 200, 120)).size(12.0));
-                        ui.add_space(8.0);
-                        if let Some(m) = &mnemonic {
-                            egui::Frame::none()
-                                .fill(Color32::from_rgb(4, 12, 8))
-                                .inner_margin(10.0)
-                                .rounding(8.0)
-                                .show(ui, |ui| {
-                                    ui.label(egui::RichText::new(m).color(MINT).size(15.0).monospace());
-                                });
-                            ui.add_space(8.0);
-                            ui.horizontal(|ui| {
-                                if ui.button("copy words").clicked() {
-                                    ui.output_mut(|o| o.copied_text = m.clone());
-                                }
-                                if ui.button("I've written them down").clicked() {
-                                    close = true;
-                                }
-                            });
-                        }
-                    });
-                if close {
-                    self.show_backup = false;
-                }
-            }
 
             // the footer rides at the bottom only in the wide HUD; in the
             // narrow layout it lives inside the scroll, after the content.
@@ -733,6 +720,92 @@ fn badge(ui: &mut egui::Ui, text: &str, tint: Color32) {
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter().rect_stroke(rect, 999.0, Stroke::new(1.0, tint.gamma_multiply(0.6)));
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, tint);
+}
+
+/// The seed, alone on screen. Returns true when the user dismisses it.
+///
+/// Not a modal: a modal invites you to keep working with your wallet's keys
+/// sitting behind a dialog. This takes the window, says the words are on the
+/// clipboard, and takes itself away after ten seconds.
+fn backup_screen(ui: &mut egui::Ui, seed: Option<&str>, secs_left: f32) -> bool {
+    let mut done = false;
+    ui.add_space(26.0);
+    // the notice, at the top, where a notification belongs
+    ui.vertical_centered(|ui| {
+        let pad = ui.spacing().button_padding;
+        let g = ui.painter().layout_no_wrap(
+            "copied to your clipboard".into(),
+            FontId::proportional(11.5),
+            MINT,
+        );
+        let (rect, _) = ui.allocate_exact_size(
+            Vec2::new(g.size().x + pad.x * 2.5, CTRL_H + 4.0),
+            Sense::hover(),
+        );
+        ui.painter().rect_filled(rect, 999.0, MINT.gamma_multiply(0.14));
+        ui.painter()
+            .rect_stroke(rect, 999.0, Stroke::new(1.0, MINT.gamma_multiply(0.55)));
+        ui.painter().galley(rect.center() - g.size() / 2.0, g, MINT);
+    });
+
+    let h = ui.available_height();
+    ui.add_space((h * 0.16).max(18.0));
+    ui.vertical_centered(|ui| {
+        caps(ui, "back up your seed", 13.0, CREAM);
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new(
+                "these fifteen words ARE your wallet. anyone who sees them owns your coins.\n                 write them on paper. the clipboard is not a backup — it will be overwritten.",
+            )
+            .color(AMBER)
+            .size(13.0),
+        );
+        ui.add_space(26.0);
+        match seed {
+            Some(m) => {
+                let w = (ui.available_width() * 0.66).clamp(360.0, 720.0);
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(5, 14, 10))
+                    .stroke(Stroke::new(1.0, MINT.gamma_multiply(0.28)))
+                    .inner_margin(egui::Margin::symmetric(26.0, 22.0))
+                    .rounding(12.0)
+                    .show(ui, |ui| {
+                        ui.set_width(w);
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new(m)
+                                    .color(MINT)
+                                    .size(20.0)
+                                    .monospace(),
+                            );
+                        });
+                    });
+            }
+            None => {
+                ui.label(egui::RichText::new("no seed to show").color(CORAL).size(13.0));
+            }
+        }
+        ui.add_space(26.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().button_padding = Vec2::new(22.0, 11.0);
+            let row = 250.0;
+            ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
+            if ui
+                .button(egui::RichText::new("I've written them down").size(13.5))
+                .clicked()
+            {
+                done = true;
+            }
+        });
+        ui.add_space(12.0);
+        caps(
+            ui,
+            &format!("hiding in {:.0}", secs_left.ceil()),
+            9.5,
+            MUTE.gamma_multiply(0.9),
+        );
+    });
+    done
 }
 
 /// The balance, at the top of the window: the number everything else exists
@@ -1039,7 +1112,7 @@ fn wallet_block(
             ui.spacing_mut().item_spacing.x = 12.0;
             let row = 430.0;
             ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
-            if ui.button(egui::RichText::new("copy").size(13.5)).clicked() {
+            if ui.button(egui::RichText::new("copy address").size(13.5)).clicked() {
                 ui.output_mut(|o| o.copied_text = addr.to_string());
             }
             if ui.button(egui::RichText::new("back up").size(13.5)).clicked() {
