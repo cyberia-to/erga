@@ -32,19 +32,21 @@ the 15 words behind the **back up** button. That seed *is* your wallet.
 
 ### from the terminal
 
-Installing the app puts `erga` on your PATH by itself, linking
-`/usr/local/bin/erga` (or `~/.local/bin/erga`) to the binary inside the bundle.
-`erga link` does it on demand.
+Installing the app puts the command on your PATH by itself: it links the
+binary inside the bundle into a directory your shell already searches,
+preferring `/usr/local/bin`, then one of your own. `erga link` does it on
+demand and prints where it landed. It answers to **`erga`** and to **`erg`**,
+which is shorter to type.
 
 ```
-erga                    open the window
-erga mine               mine here, no window — your wallet, the pool you picked
-erga mine <host> <port> <address>
-erga status             what the pool owes you, without opening anything
-erga link               put `erga` on your PATH
-erga difftest           prove the GPU kernel against the CPU reference
-erga buildbench         time one epoch-table build
-erga help
+erg                     open the window
+erg mine                mine here, no window — your wallet, the pool you picked
+erg mine <host> <port> <address>
+erg status              what the pool owes you, without opening anything
+erg link                put the command on your PATH
+erg difftest            prove the GPU kernel against the CPU reference
+erg buildbench          time one epoch-table build
+erg help
 ```
 
 One binary does all of it — the window spawns *itself* to mine, so nothing in

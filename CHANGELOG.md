@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.25.0] — 2026-08-31
+
+### Fixed
+
+- **The command was linked where no shell would look.** `place_link` tried a
+  fixed list — `/usr/local/bin`, then `~/.local/bin` — and on a Mac where the
+  first needs `sudo` and the second is on nobody's PATH, it reported itself
+  linked and then was not a command. It now prefers a directory that is
+  actually on your `$PATH`, choosing your own before a package manager's
+  prefix, and says the real directory to add when it has to fall back.
+
+### Added
+
+- **`erg`**, the same command under a shorter name, linked beside `erga`.
+  Headless mining is `erg mine`.
+
+
 ## [0.24.0] — 2026-08-31
 
 A positional release: no new surface, but the promises the README makes are
