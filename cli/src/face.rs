@@ -19,6 +19,7 @@ pub fn help() {
     for (cmd, what) in [
         ("erg", "open the window"),
         ("erg mine [host] [port] [address]", "mine here, no window"),
+        ("erg mine --intensity max|eco|min", "how hard to push"),
         ("erg status", "what the pool owes you"),
         ("erg link", "put the command on your PATH"),
         ("erg difftest", "prove the GPU kernel against the reference"),

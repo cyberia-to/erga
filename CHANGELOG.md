@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.28.0] — 2026-08-31
+
+### Added
+
+- **max · eco · min**, beside solo and the pool. How much of the machine
+  mining may take, as a duty cycle: dispatch a batch, then stand aside for a
+  proportional rest. Measured on an M4 Max — max 42–47 MH/s, eco 9.1, min 3.6,
+  which is 21% and 8% of full tilt against the 25% and 10% asked for; the gap
+  is fixed per-dispatch cost, and the hashrate shown is the real one because
+  the hashes really are not being done.
+
+  The setting is a four-byte file the miner re-reads twice a second, so moving
+  the control is felt at once instead of costing an epoch-table rebuild.
+  `erg mine --intensity max|eco|min` from the terminal.
+
+### Changed
+
+- **The scan stopped allocating three GPU buffers per dispatch.** They were
+  asked of Metal eight times a second and thrown away; only their contents
+  change, not their storage. Over five-minute runs the mean rate went from
+  38.0 MH/s to 49.4 — about 29%, though thermal drift makes the exact figure
+  soft.
+
+
 ## [0.27.0] — 2026-08-31
 
 ### Added

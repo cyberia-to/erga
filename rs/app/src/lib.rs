@@ -203,6 +203,10 @@ impl App {
             self.miner.p.set_status("wallet unavailable");
             return;
         };
+        // Publish the intensity before the miner starts, so its first
+        // dispatch already runs at the chosen setting rather than at full
+        // tilt until the first poll.
+        store::write_intensity(&self.store.intensity);
         let solo = self.solo();
         let (host, port, prefix) = pools::endpoint(self.pool_idx, solo);
         let addr = format!("{prefix}{addr}");
@@ -543,6 +547,23 @@ impl eframe::App for App {
                                 ui.selectable_value(&mut self.pool_idx, i, pl.label);
                             }
                         });
+                    // How hard to push, beside where the work goes. Writing
+                    // the file is the whole mechanism: the miner re-reads it
+                    // twice a second, so the switch is felt without throwing
+                    // away the epoch table for a restart.
+                    {
+                        const MODES: [&str; 3] = ["max", "eco", "min"];
+                        let mut idx = MODES
+                            .iter()
+                            .position(|m| *m == self.store.intensity)
+                            .unwrap_or(0);
+                        if theme::segmented(ui, &MODES, &mut idx) {
+                            self.store.intensity = MODES[idx].to_string();
+                            self.store.save();
+                            store::write_intensity(MODES[idx]);
+                        }
+                        ui.add_space(8.0);
+                    }
                     if pools::has_solo(self.pool_idx) {
                         let mut solo_on = self.store.solo;
                         if pill_toggle(ui, "solo", &mut solo_on) {

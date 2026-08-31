@@ -48,6 +48,94 @@ fn donation() -> Option<(String, u64)> {
     Some((addr, every))
 }
 
+// ─── how hard to push ────────────────────────────────────────────────────
+
+/// How much of the machine mining is allowed to take.
+///
+/// The GPU has no throttle of its own, so this is a duty cycle: dispatch a
+/// batch, then stand aside for a proportional rest. Wall-clock share is the
+/// honest unit — it is what the fans, the battery and every other app on the
+/// machine actually feel, and the reported hashrate falls with it because the
+/// hashes really are not being done.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Intensity {
+    /// Everything the chip will give.
+    Max,
+    /// A quarter of it — the machine stays entirely usable.
+    Eco,
+    /// A tenth. Nominal mining: enough to keep an address funded, little
+    /// enough to forget it is running.
+    Min,
+}
+
+impl Intensity {
+    /// The share of wall-clock the GPU may spend mining.
+    fn duty(self) -> f64 {
+        match self {
+            Intensity::Max => 1.0,
+            Intensity::Eco => 0.25,
+            Intensity::Min => 0.10,
+        }
+    }
+
+    /// Nonces per dispatch. A smaller batch at low duty spreads the same work
+    /// over more, shorter interruptions, which is what "usable machine" means
+    /// in practice; at full tilt the largest batch amortizes best.
+    fn batch(self) -> u32 {
+        let base = match self {
+            Intensity::Max => 8_388_608,
+            Intensity::Eco => 4_194_304,
+            Intensity::Min => 2_097_152,
+        };
+        std::env::var("ERGA_BATCH")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|v| *v >= 65_536)
+            .unwrap_or(base)
+    }
+
+    pub fn parse(s: &str) -> Intensity {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "min" => Intensity::Min,
+            "eco" => Intensity::Eco,
+            _ => Intensity::Max,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Intensity::Max => "max",
+            Intensity::Eco => "eco",
+            Intensity::Min => "min",
+        }
+    }
+}
+
+/// Where the window leaves the chosen intensity for the miner to read.
+fn intensity_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(
+        std::path::PathBuf::from(home)
+            .join("Library/Application Support/ai.cyber.erga")
+            .join("intensity"),
+    )
+}
+
+/// The intensity in force, re-read from disk at most twice a second.
+///
+/// Polling a four-byte file beats restarting the miner: a restart would throw
+/// away the epoch table and charge another build for what should be a switch
+/// you feel immediately.
+fn current_intensity(last: &mut std::time::Instant, cached: &mut Intensity) -> Intensity {
+    if last.elapsed().as_millis() >= 500 {
+        *last = std::time::Instant::now();
+        if let Some(s) = intensity_path().and_then(|p| std::fs::read_to_string(p).ok()) {
+            *cached = Intensity::parse(&s);
+        }
+    }
+    *cached
+}
+
 /// Where the share cadence is remembered between runs.
 fn cadence_path() -> Option<std::path::PathBuf> {
     let home = std::env::var_os("HOME")?;
@@ -248,7 +336,9 @@ fn mine_session(
 
     let mut job: Option<Job> = None;
     let mut cursor: u64 = 0;
-    let batch: u32 = 8_388_608; // 8M nonces per dispatch
+    // Re-read at most twice a second, so moving the control is felt at once.
+    let mut intensity = Intensity::parse(&std::env::var("ERGA_INTENSITY").unwrap_or_default());
+    let mut intensity_checked = std::time::Instant::now();
     let mut window_start = std::time::Instant::now();
     let mut window_hashed: u64 = 0;
 
@@ -324,7 +414,10 @@ fn mine_session(
         }
         let target = left_pad_32(&j.target_b.to_bytes_be());
 
+        intensity = current_intensity(&mut intensity_checked, &mut intensity);
+        let batch = intensity.batch();
         let nonce_base = en1_prefix | (cursor & tail_mask);
+        let dispatch_started = std::time::Instant::now();
         if let Some(nonce) = mn.scan(&msg, &target, nonce_base, batch) {
             let nb = nonce.to_be_bytes();
             let hit = autolykos::pow_hit(&msg, &nb, &j.height.to_be_bytes(), mn.n, m);
@@ -356,6 +449,18 @@ fn mine_session(
         cursor = cursor.wrapping_add(batch as u64);
         p.hashed.fetch_add(batch as u64, Ordering::Relaxed);
         window_hashed += batch as u64;
+
+        // Stand aside for the rest of the duty cycle. Measured against the
+        // dispatch that just ran, so the share holds whatever the machine's
+        // speed is: a slower chip rests less, not more.
+        let duty = intensity.duty();
+        if duty < 1.0 {
+            let worked = dispatch_started.elapsed();
+            let rest = worked.mul_f64((1.0 / duty) - 1.0);
+            // A cap keeps one slow dispatch from parking the miner for a
+            // minute; it re-measures on the next pass instead.
+            std::thread::sleep(rest.min(std::time::Duration::from_secs(2)));
+        }
 
         let dt = window_start.elapsed().as_secs_f64();
         if dt > 0.5 {
@@ -391,4 +496,33 @@ fn left_pad_32(b: &[u8]) -> [u8; 32] {
 
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The duty is the promise the control makes; the batch is how smoothly
+    /// it is kept. Both must fall as the setting eases off, or "eco" and
+    /// "min" would differ only in name.
+    #[test]
+    fn intensity_eases_off_monotonically() {
+        let (max, eco, min) = (Intensity::Max, Intensity::Eco, Intensity::Min);
+        assert!(max.duty() > eco.duty() && eco.duty() > min.duty());
+        assert!(max.batch() >= eco.batch() && eco.batch() >= min.batch());
+        assert_eq!(max.duty(), 1.0, "max must not throttle itself");
+    }
+
+    /// Anything unrecognised means full tilt: a typo in the file must not
+    /// silently drop someone to a tenth of their hashrate.
+    #[test]
+    fn intensity_parses_and_round_trips() {
+        for i in [Intensity::Max, Intensity::Eco, Intensity::Min] {
+            assert_eq!(Intensity::parse(i.as_str()), i);
+        }
+        assert_eq!(Intensity::parse("  ECO \n"), Intensity::Eco);
+        for junk in ["", "fast", "0", "maximum"] {
+            assert_eq!(Intensity::parse(junk), Intensity::Max, "{junk:?}");
+        }
+    }
 }

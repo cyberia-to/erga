@@ -70,6 +70,15 @@ pub fn build_table_limbs_parallel(n: u32, h: &[u8], m: &[u8], threads: usize) ->
     rows
 }
 
+/// The three small buffers a scan rewrites each dispatch.
+fn scratch(gpu: &Gpu) -> Result<(aruminium::Buffer, aruminium::Buffer, aruminium::Buffer), String> {
+    Ok((
+        gpu.buffer(12).map_err(|e| format!("found buffer {e:?}"))?,
+        gpu.buffer(32).map_err(|e| format!("msg buffer {e:?}"))?,
+        gpu.buffer(32).map_err(|e| format!("target buffer {e:?}"))?,
+    ))
+}
+
 #[repr(C)]
 struct Params {
     n: u64,
@@ -85,10 +94,17 @@ fn params_bytes(n: u64, nonce_base: u64, count: u32) -> [u8; 24] {
 
 /// Holds the epoch table on the GPU and scans nonce ranges for shares.
 pub struct ScanMiner {
-    gpu: Gpu,
+    /// Kept alive because every buffer below belongs to this device.
+    _gpu: Gpu,
     dispatch: Dispatch,
     pipe: aruminium::Pipeline,
     r_buf: aruminium::Buffer,
+    /// Allocated once and rewritten per dispatch. Asking Metal for three
+    /// fresh buffers eight times a second is pure overhead — the contents
+    /// change every time, the storage does not.
+    found: aruminium::Buffer,
+    msg_buf: aruminium::Buffer,
+    tgt_buf: aruminium::Buffer,
     _queue: aruminium::Queue,
     pub n: u32,
 }
@@ -104,7 +120,8 @@ impl ScanMiner {
         let r_bytes: &[u8] =
             unsafe { std::slice::from_raw_parts(rows.as_ptr() as *const u8, rows.len() * 8) };
         let r_buf = gpu.buffer_with_data(r_bytes).map_err(|e| format!("R buffer {e:?}"))?;
-        Ok(ScanMiner { gpu, dispatch, pipe, r_buf, _queue: queue, n })
+        let (found, msg_buf, tgt_buf) = scratch(&gpu)?;
+        Ok(ScanMiner { _gpu: gpu, dispatch, pipe, r_buf, found, msg_buf, tgt_buf, _queue: queue, n })
     }
 
     /// Build R on the GPU (fast enough to rebuild every Ergo block) and keep
@@ -188,23 +205,24 @@ impl ScanMiner {
                 }
             }
         }
-        Ok(ScanMiner { gpu, dispatch, pipe: scan, r_buf, _queue: queue, n })
+        let (found, msg_buf, tgt_buf) = scratch(&gpu)?;
+        Ok(ScanMiner { _gpu: gpu, dispatch, pipe: scan, r_buf, found, msg_buf, tgt_buf, _queue: queue, n })
     }
 
     /// Scan `count` nonces from `nonce_base` for hit < target. Returns the
     /// first winning full nonce, if any.
     pub fn scan(&self, msg: &[u8; 32], target: &[u8; 32], nonce_base: u64, count: u32) -> Option<u64> {
-        let found = self.gpu.buffer(12).expect("found buf");
+        let (found, msg_buf, tgt_buf) = (&self.found, &self.msg_buf, &self.tgt_buf);
         found.write(|b| b.iter_mut().for_each(|x| *x = 0));
-        let msg_buf = self.gpu.buffer_with_data(msg).expect("msg");
-        let tgt_buf = self.gpu.buffer_with_data(target).expect("target");
+        msg_buf.write(|b| b[..32].copy_from_slice(msg));
+        tgt_buf.write(|b| b[..32].copy_from_slice(target));
         let p = params_bytes(self.n as u64, nonce_base, count);
         let tg = 64usize;
         let grid = (count as usize).div_ceil(tg) * tg;
         unsafe {
             self.dispatch.dispatch_with_bytes(
                 &self.pipe,
-                &[(&self.r_buf, 0, 0), (&found, 0, 1), (&msg_buf, 0, 2), (&tgt_buf, 0, 4)],
+                &[(&self.r_buf, 0, 0), (found, 0, 1), (msg_buf, 0, 2), (tgt_buf, 0, 4)],
                 &p,
                 3,
                 (grid, 1, 1),

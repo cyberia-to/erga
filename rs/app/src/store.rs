@@ -122,6 +122,15 @@ pub fn report_bug(state: &str) {
     reveal_log();
 }
 
+/// Leave the chosen intensity where the miner looks for it. A four-byte file
+/// beats an argument: the miner is a separate process that would otherwise
+/// have to be restarted — and a restart throws away the epoch table.
+pub fn write_intensity(mode: &str) {
+    let Some(d) = support_dir() else { return };
+    let _ = std::fs::create_dir_all(&d);
+    let _ = std::fs::write(d.join("intensity"), mode);
+}
+
 /// Counters that outlive a single run, plus the one-time flags.
 #[derive(Clone, Default)]
 pub struct Store {
@@ -131,6 +140,8 @@ pub struct Store {
     pub hashed: u64,
     pub seen_intro: bool,
     pub solo: bool,
+    /// How hard mining is allowed to push: "max", "eco" or "min".
+    pub intensity: String,
     /// Where the pool should pay, when that is not the wallet erga made.
     /// Someone who already mines has an address already.
     pub payout: Option<String>,
@@ -156,6 +167,11 @@ impl Store {
             hashed: n("hashed"),
             seen_intro: b("seen_intro"),
             solo: b("solo"),
+            intensity: v
+                .get("intensity")
+                .and_then(|x| x.as_str())
+                .unwrap_or("max")
+                .to_string(),
             payout: v.get("payout").and_then(|x| x.as_str()).map(str::to_string),
         }
     }
@@ -176,6 +192,7 @@ impl Store {
             "hashed": self.hashed + s_hashed,
             "seen_intro": self.seen_intro,
             "solo": self.solo,
+            "intensity": self.intensity,
             "payout": self.payout,
         });
         let _ = std::fs::write(p, v.to_string());

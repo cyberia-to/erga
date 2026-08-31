@@ -19,10 +19,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             erga_app::run().map_err(|e| e.into())
         }
         Some("mine") => {
+            // `--intensity eco` may sit anywhere; keep it out of the
+            // positional host/port/address, which it would otherwise become.
+            if let Some(i) = argv.iter().position(|a| a == "--intensity") {
+                if let Some(mode) = argv.get(i + 1) {
+                    erga_app::store::write_intensity(
+                        erga_miner::engine::Intensity::parse(mode).as_str(),
+                    );
+                }
+            }
+            let mut pos = Vec::new();
+            let mut skip = false;
+            for a in argv.iter().skip(2) {
+                if skip {
+                    skip = false;
+                } else if a == "--intensity" {
+                    skip = true;
+                } else if !a.starts_with('-') {
+                    pos.push(a.clone());
+                }
+            }
             let (host, port) = erga_app::chosen_pool();
-            let host = argv.get(2).cloned().unwrap_or(host);
-            let port = argv.get(3).and_then(|s| s.parse().ok()).unwrap_or(port);
-            let address = match argv.get(4) {
+            let host = pos.first().cloned().unwrap_or(host);
+            let port = pos.get(1).and_then(|s| s.parse().ok()).unwrap_or(port);
+            let address = match pos.get(2) {
                 Some(a) => a.clone(),
                 None => match erga_app::payout_address() {
                     Ok(a) => {

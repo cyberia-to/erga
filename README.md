@@ -42,6 +42,7 @@ which is shorter to type.
 erg                     open the window
 erg mine                mine here, no window — your wallet, the pool you picked
 erg mine <host> <port> <address>
+erg mine --intensity max|eco|min   how hard to push
 erg status              what the pool owes you, without opening anything
 erg link                put the command on your PATH
 erg difftest            prove the GPU kernel against the CPU reference
@@ -140,7 +141,7 @@ leaves the machine.
 | stratum client | live shares **accepted** by herominers and by 2miners |
 | wallet | ergo-lib, the reference wallet: BIP39 → `m/44'/429'/0'/0/0` → P2PK |
 | balance + ledger | public explorer plus the pool's per-address API |
-| tests | 19 passing (`cargo test --workspace`) |
+| tests | 21 passing (`cargo test --workspace`) |
 
 ### the things that matter more than they look
 
@@ -167,6 +168,12 @@ fee; only the accounting changes, so whoever solves a block keeps it instead of
 sharing every one. The payout bar is replaced by the number that means
 something there — how long a block takes at your rate. (Solo against *your own
 node* is a different thing, and erga does not do it yet.)
+
+**It takes only what you allow.** `max · eco · min` beside the pool: full
+tilt, a quarter, or a tenth of the machine. It is a duty cycle — mine a batch,
+stand aside — so the number you see is the number being done, and eco leaves
+the Mac entirely usable. Measured: 42–47 MH/s at max, 9.1 at eco, 3.6 at min.
+The control is felt within half a second and costs no table rebuild.
 
 **It pays where you say.** `change address` takes any mainnet Ergo address, so
 someone who already mines is paid where they already get paid. It is checked as
@@ -247,7 +254,7 @@ Apple Silicon, macOS 14+, Rust stable, and a sibling checkout of honeycrisp:
 ```
 git clone https://github.com/cyberia-to/honeycrisp ../honeycrisp
 cargo build --release           # needs RUSTC_BOOTSTRAP=1
-cargo test --workspace          # 19 tests
+cargo test --workspace          # 21 tests
 nu packaging/bundle.nu          # → packaging/dist/erga.app + the .dmg
 ```
 

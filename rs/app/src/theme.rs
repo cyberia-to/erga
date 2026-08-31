@@ -3,7 +3,7 @@
 //! because two that differ by two pixels read as a mistake, not a hierarchy.
 
 use eframe::egui;
-use egui::{Color32, FontId, Sense, Stroke, Vec2};
+use egui::{Color32, FontId, Pos2, Sense, Stroke, Vec2};
 
 use crate::{BG, CREAM, CTRL_H, MINT};
 
@@ -145,4 +145,53 @@ pub fn load_icon(ctx: &egui::Context) -> Option<egui::TextureHandle> {
         &icon.rgba,
     );
     Some(ctx.load_texture("erga-icon", image, egui::TextureOptions::LINEAR))
+}
+
+/// A segmented pill: one shape, several cells, the chosen one filled.
+///
+/// Three separate toggles would let you pick two, or none, and mining is
+/// always at exactly one intensity. The shape says so. Same height as every
+/// other header control, so the row cannot step.
+pub fn segmented(ui: &mut egui::Ui, options: &[&str], idx: &mut usize) -> bool {
+    let pad = ui.spacing().button_padding.x;
+    let galleys: Vec<_> = options
+        .iter()
+        .map(|t| ui.painter().layout_no_wrap((*t).to_string(), FontId::proportional(10.5), MINT))
+        .collect();
+    let cells: Vec<f32> = galleys.iter().map(|g| g.size().x + pad * 2.0).collect();
+    let total: f32 = cells.iter().sum();
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(total, CTRL_H), Sense::click());
+    let hot = resp.hovered();
+
+    ui.painter().rect_stroke(
+        rect,
+        999.0,
+        Stroke::new(1.0, MINT.gamma_multiply(if hot { 0.95 } else { 0.45 })),
+    );
+
+    let mut changed = false;
+    let mut x = rect.min.x;
+    for (i, (g, w)) in galleys.into_iter().zip(&cells).enumerate() {
+        let cell = egui::Rect::from_min_size(Pos2::new(x, rect.min.y), Vec2::new(*w, CTRL_H));
+        let over = resp.hover_pos().is_some_and(|p| cell.contains(p));
+        if i == *idx {
+            ui.painter().rect_filled(cell, 999.0, MINT.gamma_multiply(if hot { 1.0 } else { 0.88 }));
+        } else if over {
+            ui.painter().rect_filled(cell, 999.0, MINT.gamma_multiply(0.12));
+        }
+        ui.painter().galley(
+            cell.center() - g.size() / 2.0,
+            g,
+            if i == *idx { BG } else { MINT },
+        );
+        if resp.clicked() && over && i != *idx {
+            *idx = i;
+            changed = true;
+        }
+        x += w;
+    }
+    if hot {
+        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+    }
+    changed
 }
