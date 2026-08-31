@@ -170,8 +170,17 @@ Other things it does because they matter more than they look:
   different thing, and erga does not do it yet.) The payout bar is replaced
   by the number that actually means something there: how long a block takes
   at your rate
-- **keeps a log** at `~/Library/Logs/erga/erga.log`, one click away under
-  `logs`, so a problem can be reported with evidence
+- **reports bugs in one click** — `report a bug` opens a GitHub issue with
+  your erga version, macOS, chip, memory, the pool, the live state and the
+  last 40 log lines already filled in, and reveals the full log in Finder so
+  attaching it is one drag
+- **separates what erga costs from what the machine was doing anyway** — the
+  cpu and memory meters draw the miner's own share solid over a dim total, so
+  you can tell at a glance whether erga is the reason the machine is busy
+- **colours mean something**: mint is what you gain, amber what it costs,
+  coral what went wrong, and blue what the chain says
+- `ERGA_AUTOSTART=1` begins mining as soon as the window opens, for a login
+  item or a machine whose only job is this
 
 ## the 5% development share
 

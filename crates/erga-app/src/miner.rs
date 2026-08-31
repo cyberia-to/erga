@@ -28,6 +28,12 @@ impl Miner {
         Miner { p: Progress::new(), child: None, reader: None }
     }
 
+    /// The mining child's pid, so its own resource use can be shown apart
+    /// from the machine's.
+    pub fn pid(&self) -> Option<u32> {
+        self.child.as_ref().map(|c| c.id())
+    }
+
     pub fn is_running(&self) -> bool {
         self.p.running.load(Ordering::Relaxed)
     }

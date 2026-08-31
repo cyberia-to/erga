@@ -42,6 +42,69 @@ pub fn reveal_log() {
     }
 }
 
+/// The last `n` lines of the log — enough to see what just went wrong
+/// without pasting a novel into an issue.
+pub fn log_tail(n: usize) -> String {
+    let Some(p) = log_path() else { return String::new() };
+    let Ok(text) = std::fs::read_to_string(p) else { return String::new() };
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+fn shell(cmd: &str, args: &[&str]) -> String {
+    std::process::Command::new(cmd)
+        .args(args)
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// Percent-encode for a URL query value. Small and explicit beats a
+/// dependency for one string.
+fn encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 2);
+    for b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Open a prefilled GitHub issue: the facts that are always asked for are
+/// already in it, so a report costs one click instead of an interrogation.
+/// GitHub cannot take a file attachment through a URL, so the log tail is
+/// pasted inline — and the full log stays one Finder click away.
+pub fn report_bug(state: &str) {
+    let os = shell("sw_vers", &["-productVersion"]);
+    let chip = shell("sysctl", &["-n", "machdep.cpu.brand_string"]);
+    let mem_gb = shell("sysctl", &["-n", "hw.memsize"])
+        .parse::<u64>()
+        .map(|b| format!("{:.0} GB", b as f64 / (1u64 << 30) as f64))
+        .unwrap_or_default();
+    let body = format!(
+        "**What happened?**\n\n\n**What did you expect?**\n\n\n---\n\n         | | |\n|---|---|\n         | erga | {} |\n| macOS | {os} |\n| chip | {chip} |\n| memory | {mem_gb} |\n\n         **State**\n\n```\n{state}\n```\n\n**Recent log**\n\n```\n{}\n```\n",
+        env!("CARGO_PKG_VERSION"),
+        log_tail(40),
+    );
+    // Keep well under what browsers and GitHub accept for a GET.
+    let body: String = body.chars().take(5000).collect();
+    let url = format!(
+        "https://github.com/cyberia-to/erga/issues/new?title={}&body={}",
+        encode(&format!("[{}] ", env!("CARGO_PKG_VERSION"))),
+        encode(&body)
+    );
+    let _ = std::process::Command::new("open").arg(url).spawn();
+    // GitHub takes no attachment through a URL, so the tail is inline above.
+    // Reveal the full log too: attaching it is then one drag into the issue.
+    reveal_log();
+}
+
 /// Counters that outlive a single run, plus the one-time flags.
 #[derive(Clone, Default)]
 pub struct Store {

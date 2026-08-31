@@ -23,8 +23,17 @@ use erga_miner::engine::Progress;
 use miner::Miner;
 use std::sync::Arc;
 
+// Colour is a language here, not decoration. Nothing is given a colour it
+// has not earned:
+//   MINT   what you gain — earnings, hashrate, the crystal while it runs
+//   AMBER  what it costs — cpu, memory, network: the machine working for you
+//   CORAL  what is wrong — rejected shares, failures
+//   SKY    what the chain says — height, difficulty: facts you do not own
 const BG: Color32 = Color32::from_rgb(3, 5, 4); // near-black with a faint green cast
 const MINT: Color32 = Color32::from_rgb(125, 255, 196);
+const AMBER: Color32 = Color32::from_rgb(255, 186, 92);
+const CORAL: Color32 = Color32::from_rgb(255, 122, 122);
+const SKY: Color32 = Color32::from_rgb(126, 197, 255);
 const CREAM: Color32 = Color32::from_rgb(235, 245, 240);
 const MUTE: Color32 = Color32::from_rgb(90, 110, 100);
 /// Every pill in the header is exactly this tall. egui sizes a ComboBox from
@@ -265,6 +274,12 @@ impl App {
         self.store.solo && pools::has_solo(self.pool_idx)
     }
 
+    /// Start mining as soon as the window is up. Set ERGA_AUTOSTART=1 for a
+    /// login item, or for a machine whose only job is to mine.
+    fn autostart(&self) -> bool {
+        std::env::var("ERGA_AUTOSTART").map(|v| v != "0").unwrap_or(false)
+    }
+
     fn address(&self) -> Option<&str> {
         self.wallet.as_ref().ok().map(|w| w.address.as_str())
     }
@@ -276,6 +291,9 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.autostart() && self.session_start.is_none() && !self.miner.is_running() {
+            self.begin();
+        }
         let running = self.miner.is_running();
         if running {
             self.spin += 0.01;
@@ -332,6 +350,8 @@ impl eframe::App for App {
                 ui.label(job);
                 ui.add_space(4.0);
                 caps(ui, "ergo miner", 10.5, MUTE);
+                ui.add_space(6.0);
+                caps(ui, &format!("v{}", env!("CARGO_PKG_VERSION")), 9.5, MUTE.gamma_multiply(0.8));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // ComboBox takes its height from interact_size; the badge
                     // takes CTRL_H. Same number, so the row cannot step.
@@ -386,15 +406,17 @@ impl eframe::App for App {
                     self.last_balance = std::time::Instant::now();
                 }
             }
-            self.sys.refresh();
+            self.sys.refresh(self.miner.pid());
             let p = self.miner.p.clone();
             let mhs = p.mhs();
             let (cpu, mem, net_kbs) = (self.sys.cpu, self.sys.mem, self.sys.down_kbs);
+            let (miner_cpu, miner_mem) = (self.sys.miner_cpu, self.sys.miner_mem);
             let on_chain = self.balance.inner.lock().unwrap().erg;
             let has_ledger = pools::has_ledger(self.pool_idx);
             let solo = self.solo();
             let addr_opt = self.address().map(|a| a.to_string());
             let mut want_backup = false;
+            let mut want_report = false;
             let mut start_stop = false;
             let pool_label = pools::POOLS[self.pool_idx].label;
 
@@ -412,7 +434,7 @@ impl eframe::App for App {
                 ui.horizontal(|ui| {
                     ui.add_space(side);
                     panel_frame(ui, lw, 0.0, |ui| {
-                        machine_panel(ui, &p, cpu, mem, net_kbs, mhs, running, eff_mhs, all_time);
+                        machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs, all_time);
                     });
                     ui.add_space(gap);
                     // the crystal and the hero rate under it
@@ -446,7 +468,7 @@ impl eframe::App for App {
 
                 ui.add_space(18.0);
                 if let Some(addr) = &addr_opt {
-                    wallet_strip(ui, addr, avail_w, &mut want_backup);
+                    wallet_strip(ui, addr, avail_w, &mut want_backup, &mut want_report);
                 }
             } else {
                 // ── narrow: the same organs, stacked on one axis ──────
@@ -486,7 +508,7 @@ impl eframe::App for App {
                             ui.vertical(|ui| {
                                 ui.set_width(col_w);
                                 panel_frame(ui, col_w, 0.0, |ui| {
-                                    machine_panel(ui, &p, cpu, mem, net_kbs, mhs, running, eff_mhs, all_time);
+                                    machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs, all_time);
                                 });
                                 ui.add_space(12.0);
                                 panel_frame(ui, col_w, 0.0, |ui| {
@@ -495,7 +517,7 @@ impl eframe::App for App {
                                 });
                                 ui.add_space(14.0);
                                 if let Some(addr) = &addr_opt {
-                                    wallet_strip(ui, addr, col_w, &mut want_backup);
+                                    wallet_strip(ui, addr, col_w, &mut want_backup, &mut want_report);
                                 }
                                 ui.add_space(14.0);
                                 ui.vertical_centered(|ui| {
@@ -507,6 +529,31 @@ impl eframe::App for App {
                     });
             }
 
+            if want_report {
+                let pl = pools::get(self.pool_idx);
+                let p = &self.miner.p;
+                use std::sync::atomic::Ordering::Relaxed;
+                let state = format!(
+                    "pool: {} ({}:{}) solo={}\nstatus: {}\ndevice: {}\nrate: {:.1} MH/s\n\
+                     height: {}\nshares: {} accepted, {} rejected, {} to development\n\
+                     hashed this run: {}\nall time: {} shares, {} hashes",
+                    pl.label,
+                    pl.host,
+                    pl.port,
+                    self.solo(),
+                    p.status.lock().unwrap(),
+                    p.device.lock().unwrap(),
+                    p.mhs(),
+                    p.height.load(Relaxed),
+                    p.accepted.load(Relaxed),
+                    p.rejected.load(Relaxed),
+                    p.donated.load(Relaxed),
+                    human(p.hashed.load(Relaxed)),
+                    self.store.accepted + p.accepted.load(Relaxed),
+                    human(self.store.hashed + p.hashed.load(Relaxed)),
+                );
+                store::report_bug(&state);
+            }
             if want_backup {
                 self.show_backup = true;
             }
@@ -614,28 +661,44 @@ fn badge(ui: &mut egui::Ui, text: &str) {
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, MINT);
 }
 
-/// A dashboard meter: label, a segmented fill bar (0..1), the value in bold.
-/// Segments make the level readable at a glance instead of a smooth smear.
-fn meter(ui: &mut egui::Ui, label: &str, frac: f32, val: &str) {
+/// A meter that separates *what erga costs* from what the machine was doing
+/// anyway: the solid segment is the miner, the dim one behind it is
+/// everything else. A bar showing only the total answers the wrong question —
+/// from it you cannot tell whether erga is the reason the machine is busy.
+fn meter(ui: &mut egui::Ui, label: &str, mine: f32, total: f32, val: &str, tint: Color32) {
     ui.vertical(|ui| {
-        caps(ui, label, 9.0, MINT.gamma_multiply(0.9));
+        caps(ui, label, 9.0, tint.gamma_multiply(0.9));
         ui.add_space(4.0);
         let w = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 9.0), Sense::hover());
+        let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 9.0), Sense::hover());
         ui.painter().rect_filled(rect, 4.5, Color32::from_rgb(24, 34, 29));
-        let f = frac.clamp(0.0, 1.0);
-        let col = if f > 0.9 { Color32::from_rgb(255, 180, 120) } else { MINT };
+        let total = total.clamp(0.0, 1.0);
+        let mine = mine.clamp(0.0, total);
         ui.painter().rect_filled(
-            egui::Rect::from_min_size(rect.min, Vec2::new((w * f).max(2.0), 9.0)),
+            egui::Rect::from_min_size(rect.min, Vec2::new(w * total, 9.0)),
             4.5,
-            col,
+            tint.gamma_multiply(0.26),
         );
+        if mine > 0.0005 {
+            ui.painter().rect_filled(
+                egui::Rect::from_min_size(rect.min, Vec2::new((w * mine).max(3.0), 9.0)),
+                4.5,
+                tint,
+            );
+        }
         for i in 1..8 {
             let x = rect.min.x + w * i as f32 / 8.0;
             ui.painter().line_segment(
                 [Pos2::new(x, rect.min.y + 1.0), Pos2::new(x, rect.max.y - 1.0)],
                 Stroke::new(1.0, BG),
             );
+        }
+        if resp.hovered() {
+            resp.on_hover_text(format!(
+                "erga {:.0}%  ·  everything else {:.0}%",
+                mine * 100.0,
+                (total - mine).max(0.0) * 100.0
+            ));
         }
         ui.add_space(4.0);
         let mut job = egui::text::LayoutJob::default();
@@ -702,6 +765,8 @@ fn machine_panel(
     p: &Arc<Progress>,
     cpu: f32,
     mem: f32,
+    miner_cpu: f32,
+    miner_mem: f32,
     net_kbs: f64,
     mhs: f64,
     running: bool,
@@ -716,19 +781,22 @@ fn machine_panel(
     ui.add_space(12.0);
     // the graphic heart of the panel — four live meters
     ui.columns(2, |c| {
-        meter(&mut c[0], "cpu", cpu, &format!("{:.0}%", cpu * 100.0));
+        meter(&mut c[0], "cpu", miner_cpu, cpu, &format!("{:.0}%", cpu * 100.0), AMBER);
         // GPU has no privilege-free utilisation read; the hashrate is its
         // honest signal, scaled against ~80 MH/s (the M4 Max ceiling).
-        meter(&mut c[1], "gpu", (mhs / 80.0) as f32, &format!("{mhs:.0} MH/s"));
+        // the GPU is all ours while mining, and it is production, not cost
+        meter(&mut c[1], "gpu", (mhs / 80.0) as f32, (mhs / 80.0) as f32, &format!("{mhs:.0} MH/s"), MINT);
     });
     ui.add_space(12.0);
     ui.columns(2, |c| {
-        meter(&mut c[0], "ram", mem, &format!("{:.0}%", mem * 100.0));
+        meter(&mut c[0], "ram", miner_mem, mem, &format!("{:.0}%", mem * 100.0), AMBER);
         meter(
             &mut c[1],
             "net",
+            0.0,
             (net_kbs / 2048.0) as f32,
             &format!("{net_kbs:.0} KB/s"),
+            AMBER,
         );
     });
     ui.add_space(14.0);
@@ -739,15 +807,15 @@ fn machine_panel(
     {
         let acc = p.accepted.load(O::Relaxed);
         let rej = p.rejected.load(O::Relaxed);
-        card_row(
-            ui,
-            "shares",
-            &if rej > 0 { format!("{acc}  ({rej} rejected)") } else { format!("{acc}") },
-        );
+        if rej > 0 {
+            card_row_tinted(ui, "shares", &format!("{acc}  ({rej} rejected)"), CORAL);
+        } else {
+            card_row(ui, "shares", &format!("{acc}"));
+        }
     }
     {
         let h = p.height.load(O::Relaxed);
-        card_row(ui, "block", &(if h > 0 { h.to_string() } else { "—".into() }));
+        card_row_tinted(ui, "block", &(if h > 0 { h.to_string() } else { "—".into() }), SKY);
     }
     card_row(ui, "hashed", &human(p.hashed.load(O::Relaxed)));
     if let Some(e) = eff_mhs {
@@ -851,7 +919,13 @@ fn honest_footer(ui: &mut egui::Ui, pool_label: &str) {
 }
 
 /// The wallet strip — identity, present but out of the game's way.
-fn wallet_strip(ui: &mut egui::Ui, addr: &str, w: f32, want_backup: &mut bool) {
+fn wallet_strip(
+    ui: &mut egui::Ui,
+    addr: &str,
+    w: f32,
+    want_backup: &mut bool,
+    want_report: &mut bool,
+) {
     ui.horizontal(|ui| {
         ui.add_space(((ui.available_width() - w.min(660.0)) / 2.0).max(0.0));
         caps(ui, "wallet", 9.5, MUTE);
@@ -869,8 +943,12 @@ fn wallet_strip(ui: &mut egui::Ui, addr: &str, w: f32, want_backup: &mut bool) {
         if ui.button(egui::RichText::new("back up").size(10.0)).clicked() {
             *want_backup = true;
         }
-        if ui.button(egui::RichText::new("logs").size(10.0)).clicked() {
-            store::reveal_log();
+        if ui
+            .button(egui::RichText::new("report a bug").size(10.0))
+            .on_hover_text("opens a GitHub issue with your machine, the app state and the recent log already filled in")
+            .clicked()
+        {
+            *want_report = true;
         }
     });
 }
@@ -1008,6 +1086,16 @@ fn payout_eta(pi: &pool::PoolInfo, local_mhs: f64, earned: f64) -> String {
 }
 
 /// A key/value row inside a card (no outer margins — the card supplies them).
+/// Like `card_row`, but the value wears a colour that means something.
+fn card_row_tinted(ui: &mut egui::Ui, key: &str, val: &str, tint: Color32) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(key).color(MINT.gamma_multiply(0.85)).size(11.5));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(egui::RichText::new(val).color(tint).size(12.0).monospace());
+        });
+    });
+}
+
 fn card_row(ui: &mut egui::Ui, key: &str, val: &str) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(key).color(MINT.gamma_multiply(0.85)).size(11.0));
