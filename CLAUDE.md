@@ -40,8 +40,8 @@ rs/*-bench  the measurements that came first
 ```
 git clone https://github.com/cyberia-to/honeycrisp ../honeycrisp
 cargo build --release          # needs RUSTC_BOOTSTRAP=1
-cargo test --workspace         # 12 tests
+cargo test --workspace         # 14 tests
 nu packaging/bundle.nu         # → .app + .dmg
-erga-miner buildbench          # time one epoch-table build
-erga-miner difftest            # GPU kernel == CPU reference
+erga buildbench          # time one epoch-table build
+erga difftest            # GPU kernel == CPU reference
 ```

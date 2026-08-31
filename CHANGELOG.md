@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.24.0] — 2026-08-31
+
+A positional release: no new surface, but the promises the README makes are
+now the promises the code keeps.
+
+### Fixed
+
+- **The development share was never taken in short sessions.** The cadence
+  counter lived only in the miner process, which is spawned afresh every time
+  mining starts — so anyone mining in bursts of fewer than 20 shares donated
+  nothing, and the stated 1-in-20 was quietly 1-in-never. Locally: 38 accepted
+  shares, 0 donated. The count now survives restarts and is checkpointed on
+  every share, so a quit or a kill costs nothing.
+- **The bug report's environment table rendered as a code block.** Source
+  indentation had leaked into the issue template, and four leading spaces are
+  all Markdown needs. Two tests now hold the template flat.
+
+### Added
+
+- The development count is shown in the app, under **to development** beside
+  your own all-time shares. It was previously visible only inside a filed bug
+  report — which is not what "never hidden" means.
+
+### Changed
+
+- The README is rewritten: what you get, what it costs in memory, what it
+  earns, and why the pool list is short — with the live and effective
+  hashrates separated, since only the second is the one a pool agrees with.
+- The panels take view structs instead of ten positional arguments, so a call
+  site says what it passes. Zero clippy findings across the workspace; 14
+  tests.
+
+
 ## [0.23.0] — 2026-08-31
 
 ### Changed
