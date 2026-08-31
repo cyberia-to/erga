@@ -28,7 +28,7 @@ fn row_width(ui: &egui::Ui, labels: &[&str], size: f32) -> f32 {
         })
         .sum()
 }
-use crate::{AMBER, CORAL, CREAM, CTRL_H, MINT, MUTE};
+use crate::{AMBER, CORAL, CREAM, CTRL_H, MINT};
 
 /// The wallet strip — identity, present but out of the game's way.
 /// The wallet, directly under the button that fills it: the address large
@@ -45,8 +45,7 @@ pub fn wallet_block(ui: &mut egui::Ui, addr: Option<&str>) {
         return;
     };
     ui.vertical_centered(|ui| {
-        caps(ui, "your wallet", 9.5, MUTE);
-        ui.add_space(6.0);
+        // An Ergo address under a mining crystal is self-evidently your wallet.
         ui.label(
             egui::RichText::new(addr)
                 .monospace()

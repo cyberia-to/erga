@@ -174,8 +174,8 @@ pub fn big_balance(ui: &mut egui::Ui, on_chain: Option<f64>, w: f32) {
         size -= 2.0;
     }
     ui.vertical_centered(|ui| {
-        caps(ui, "your balance on chain", 9.5, MUTE);
-        ui.add_space(2.0);
+        // No label: a large number in ERG, at the head of a miner's window,
+        // does not need to be told what it is.
         ui.horizontal(|ui| {
             let g = ui.painter().layout_no_wrap(text.clone(), play_bold(size), colour);
             let row = g.size().x + 46.0;
@@ -220,8 +220,9 @@ pub fn hero_rate(ui: &mut egui::Ui, mhs: f64, running: bool, p: &Arc<Progress>, 
 /// nagging it.
 pub fn start_hint(ui: &mut egui::Ui) {
     let t = ui.input(|i| i.time);
-    // ~4.5 s per breath, never fully out
-    let a = 0.42 + 0.58 * (0.5 - 0.5 * ((t * 1.4).cos() as f32));
+    // ~7 s per breath, and never dimmer than two thirds: a hint that swings
+    // to nearly-off reads as a warning light rather than as an invitation.
+    let a = 0.66 + 0.34 * (0.5 - 0.5 * ((t * 0.9).cos() as f32));
     ui.vertical_centered(|ui| {
         caps(ui, "press the crystal to begin", 10.5, MINT.gamma_multiply(a));
     });

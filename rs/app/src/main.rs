@@ -601,7 +601,7 @@ impl eframe::App for App {
                     action_bar(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
                     ui.add_space(16.0);
                     wallet_block(ui, addr_opt.as_deref());
-                    ui.add_space(34.0); // clear of the status line above
+                    ui.add_space(44.0); // clear of the status line above
                 });
             } else {
                 // ── narrow: the same organs, stacked on one axis ──────

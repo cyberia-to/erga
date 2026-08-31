@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.18.0] — 2026-08-31
+
+### Changed
+
+- The sounds are modelled rather than synthesised. A struck wooden bar for the
+  press — inharmonic partials at the free-bar ratios, over a filtered noise
+  transient, which is why wood sounds like wood — and a drop of water for a
+  share, its pitch rising as the cavity behind it closes. That rise is what
+  makes a droplet recognisable, and it needs the *integral* of the frequency;
+  multiplying frequency by time gives a slide whistle.
+- The start hint breathes more slowly and never dims below two thirds. A hint
+  that swings to nearly-off reads as a warning light, not an invitation.
+
+### Removed
+
+- "YOUR BALANCE ON CHAIN" and "YOUR WALLET". A large number in ERG at the head
+  of a miner's window, and an Ergo address under a mining crystal, do not need
+  to be told what they are.
+
+
 ## [0.17.0] — 2026-08-31
 
 ### Added
