@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 autolykos   = { path = "../autolykos" }
 blake-bench = { path = "../blake-bench" }
-erga-pool   = { path = "../erga-pool" }
+erga-pool   = { path = "../pool" }
 aruminium   = { path = "../../../honeycrisp/aruminium" }
 num-bigint  = "0.4"
 num-traits  = "0.2"

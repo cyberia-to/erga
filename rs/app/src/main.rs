@@ -129,6 +129,17 @@ fn setup_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
+/// The app icon, as a texture, decoded once and kept. Same bytes the bundle
+/// ships — the window and the Dock cannot drift apart.
+fn load_icon(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png")).ok()?;
+    let image = egui::ColorImage::from_rgba_unmultiplied(
+        [icon.width as usize, icon.height as usize],
+        &icon.rgba,
+    );
+    Some(ctx.load_texture("erga-icon", image, egui::TextureOptions::LINEAR))
+}
+
 fn play_bold(size: f32) -> FontId {
     FontId::new(size, egui::FontFamily::Name("play-bold".into()))
 }
@@ -199,6 +210,8 @@ struct App {
     last_balance: std::time::Instant,
     sys: stats::Sys,
     store: store::Store,
+    /// Loaded on first paint; `Some(None)` means the artwork would not decode.
+    icon: Option<Option<egui::TextureHandle>>,
     /// When the current mining session began, for the effective rate.
     session_start: Option<std::time::Instant>,
     last_save: std::time::Instant,
@@ -225,6 +238,7 @@ impl App {
             last_balance: std::time::Instant::now(),
             sys: stats::Sys::new(),
             store: store::Store::load(),
+            icon: None,
             session_start: None,
             last_save: std::time::Instant::now(),
         }
@@ -336,28 +350,36 @@ impl eframe::App for App {
             // ── header — wordmark left, pool + badge right ────────────
             ui.horizontal(|ui| {
                 ui.add_space(22.0);
+                if let Some(tex) = self.icon.get_or_insert_with(|| load_icon(ui.ctx())).clone() {
+                    ui.add(
+                        egui::Image::new(egui::load::SizedTexture::new(
+                            tex.id(),
+                            Vec2::splat(26.0),
+                        ))
+                        .fit_to_exact_size(Vec2::splat(26.0)),
+                    );
+                    ui.add_space(9.0);
+                }
                 let mut job = egui::text::LayoutJob::default();
                 job.append(
-                    "ERGA",
+                    "Erga",
                     0.0,
                     egui::TextFormat {
                         font_id: play_bold(21.0),
                         color: CREAM,
-                        extra_letter_spacing: 3.0,
+                        extra_letter_spacing: 0.6,
                         ..Default::default()
                     },
                 );
                 ui.label(job);
-                ui.add_space(4.0);
-                caps(ui, "ergo miner", 10.5, MUTE);
-                ui.add_space(6.0);
-                caps(ui, &format!("v{}", env!("CARGO_PKG_VERSION")), 9.5, MUTE.gamma_multiply(0.8));
+                ui.add_space(8.0);
+                caps(ui, &format!("v{}", env!("CARGO_PKG_VERSION")), 9.5, MUTE.gamma_multiply(0.85));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // ComboBox takes its height from interact_size; the badge
                     // takes CTRL_H. Same number, so the row cannot step.
                     ui.spacing_mut().interact_size.y = CTRL_H;
                     ui.add_space(22.0);
-                    badge(ui, "experimental");
+                    badge(ui, "beta", AMBER);
                     ui.add_space(8.0);
                     let prev = self.pool_idx;
                     egui::ComboBox::from_id_source("pool")
@@ -644,13 +666,13 @@ fn pill_toggle(ui: &mut egui::Ui, text: &str, on: &mut bool) -> bool {
     false
 }
 
-fn badge(ui: &mut egui::Ui, text: &str) {
-    let galley = ui.painter().layout_no_wrap(text.into(), FontId::proportional(10.5), MINT);
+fn badge(ui: &mut egui::Ui, text: &str, tint: Color32) {
+    let galley = ui.painter().layout_no_wrap(text.into(), FontId::proportional(10.5), tint);
     let pad = ui.spacing().button_padding;
     let size = Vec2::new(galley.size().x + pad.x * 2.0, CTRL_H);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    ui.painter().rect_stroke(rect, 999.0, Stroke::new(1.0, MINT.gamma_multiply(0.5)));
-    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, MINT);
+    ui.painter().rect_stroke(rect, 999.0, Stroke::new(1.0, tint.gamma_multiply(0.6)));
+    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, tint);
 }
 
 /// A meter that separates *what erga costs* from what the machine was doing

@@ -17,11 +17,11 @@ not just against itself.
 
 | piece | state | verified how |
 |---|---|---|
-| Autolykos v2 reference (`crates/autolykos`) | done | reproduces sigma-rust's own chain vector (height 614400 → hit `0x0002fcb1…412a`) |
+| Autolykos v2 reference (`rs/autolykos`) | done | reproduces sigma-rust's own chain vector (height 614400 → hit `0x0002fcb1…412a`) |
 | GPU kernel | done | differential test: GPU hit is byte-exact to the CPU reference over 512 nonces |
-| stratum client (`crates/erga-pool`) | done | live shares **accepted** by herominers and by 2miners |
+| stratum client (`rs/pool`) | done | live shares **accepted** by herominers and by 2miners |
 | share re-verification | done | every candidate is re-hashed on the CPU reference before it is sent — nothing invalid ever leaves the machine |
-| wallet (`crates/erga-wallet`) | done | ergo-lib (the reference wallet): BIP39 → `m/44'/429'/0'/0/0` → P2PK |
+| wallet (`rs/wallet`) | done | ergo-lib (the reference wallet): BIP39 → `m/44'/429'/0'/0/0` → P2PK |
 | balance + pool ledger | done | public explorer + the pool's per-address API |
 | tests | 12 passing | `cargo test --workspace` |
 
@@ -199,7 +199,16 @@ ERGA_DONATION_EVERY=50           1 share in 50 (2%) instead
 ```
 
 Or edit `DONATION_ADDRESS` / `DONATION_EVERY_NTH` at the top of
-[`crates/erga-miner/src/engine.rs`](crates/erga-miner/src/engine.rs).
+[`rs/miner/src/engine.rs`](rs/miner/src/engine.rs).
+
+## repository layout
+
+| path | what |
+|---|---|
+| [`rs/`](rs/) | the crates — `autolykos`, `pool`, `miner`, `wallet`, `app`, and the three benches |
+| [`docs/`](docs/README.md) | how it works: the architecture, the mining loop, where the money is |
+| [`specs/`](specs/README.md) | what it must do: the correctness invariants and the resource contract |
+| [`packaging/`](packaging/) | the `.app`, the `.dmg`, and the icon as code |
 
 ## build from source
 

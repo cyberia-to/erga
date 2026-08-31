@@ -51,7 +51,7 @@ honeycrisp/acpu        ← Blake2b256 via PMULL + NEON, P-core affinity
 honeycrisp/aruminium   ← Metal GPU dispatch, MTLBuffer over unimem block
 honeycrisp/unimem      ← IOSurface-pinned R-table (2-8 GB)
      ↑
-erga/crates/
+erga/rs/
   autolykos/           ← core: primitives, R-table, mining kernel
   worker/              ← GPU worker loop, stratum work management
   erga/                ← CLI binary: stratum v1, stats UI
@@ -123,7 +123,7 @@ determine if it is a bottleneck for Autolykos v2 mining.
 **Original threshold**: ≥ 5 GH/s "on 64-byte inputs." This number was
 based on incorrect ALU-budget math — see "lesson" below.
 
-**Crate built**: `crates/blake-bench` — four MSL kernel variants, CPU
+**Crate built**: `rs/blake-bench` — four MSL kernel variants, CPU
 reference verification, sweep harness. Each variant verified bit-exact
 against the `blake2` crate on 4096 random 32-byte inputs.
 
@@ -197,7 +197,7 @@ into the same `unimem::Block` and adds AMX on top.
 
 ### Phase 2 — R-table build and zero-copy access (✅ COMPLETED 2026-05-22)
 
-**Crate built**: `crates/rtable-bench`. One `unimem::Block` per benchmark
+**Crate built**: `rs/rtable-bench`. One `unimem::Block` per benchmark
 run, wrapped via `gpu.wrap(&block)` as an `MTLBuffer`. CPU builder writes
 into the IOSurface-pinned bytes directly via `block.as_bytes_mut()` from
 parallel `std::thread::scope` workers. GPU probe kernel reads pseudorandom
@@ -263,7 +263,7 @@ pattern).
 
 ### Phase 3 — Integrated mining kernel (✅ COMPLETED 2026-05-22)
 
-**Crate built**: `crates/mine-bench`. End-to-end Autolykos v2 mining
+**Crate built**: `rs/mine-bench`. End-to-end Autolykos v2 mining
 kernel: per-nonce Blake2b256(m||nonce) → genIndexes(35-byte sliding
 window) → 32 random reads from R → 256-bit mod-2^256 sum → Blake2b256
 → XOR-accumulate. Reads R directly from the same IOSurface block built
@@ -466,7 +466,7 @@ hashrate vs solo-mining baseline.
 erga/
 ├── Cargo.toml                     workspace
 ├── plan.md                        this file
-└── crates/
+└── rs/
     ├── autolykos/                 core algorithm
     │   ├── src/
     │   │   ├── lib.rs

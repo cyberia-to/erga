@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/blake-bench",
-    "crates/rtable-bench",
-    "crates/mine-bench",
-    "crates/erga-app",
-    "crates/autolykos",
-    "crates/erga-pool",
-    "crates/erga-miner",
-    "crates/erga-wallet",
+    "rs/autolykos",
+    "rs/pool",
+    "rs/miner",
+    "rs/wallet",
+    "rs/app",
+    "rs/blake-bench",
+    "rs/rtable-bench",
+    "rs/mine-bench",
 ]
 
 [profile.release]
