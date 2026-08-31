@@ -344,7 +344,6 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             let avail_w = ui.available_width();
-            let avail_h = ui.available_height();
             ui.add_space(16.0);
 
             // ── header — wordmark left, pool + badge right ────────────
@@ -442,58 +441,117 @@ impl eframe::App for App {
             let mut start_stop = false;
 
             let wide = avail_w >= 1000.0;
+            // The header has drawn by now, so ask again: the value taken
+            // before it is larger than what is actually left, and every
+            // centring below is computed from this number.
+            let avail_h = ui.available_height();
             if wide {
-                // ── the HUD: crystal sun, panels in orbit ─────────────
+                // ── the HUD ───────────────────────────────────────────
+                // Read top to bottom: the balance is what this is for, the
+                // crystal is how you get it, the wallet is where it lands.
+                // So the balance opens and the actions close, and the crystal
+                // sits dead centre of the window with the two panels — cost
+                // on the left, return on the right — level with it.
                 let side = 40.0;
-                // The two panels are the same object seen twice — what it
-                // costs on the left, what it returns on the right — so they
-                // get the same width and the same height, and the balance
-                // grows to take whatever slack the right one has.
                 let (pw, gap) = (360.0, 30.0);
-                let cw = (avail_w - side * 2.0 - pw * 2.0 - gap * 2.0 - 48.0).max(260.0);
-                let cr = (cw * 0.34).min(avail_h * 0.22).clamp(120.0, 240.0);
-                let centre_h = cr * 2.05 + 120.0;
-                let panel_h = centre_h.max(340.0);
-                ui.add_space(((avail_h - centre_h - 150.0) / 2.0).max(10.0));
+                let cw = (avail_w - side * 2.0 - pw * 2.0 - gap * 2.0).max(260.0);
+                // the actions own the foot of the window
+                let foot_h = 132.0;
+                let band_h = (avail_h - foot_h - 16.0).max(340.0);
+                // For the crystal's centre to land on band_h/2 while the rate
+                // still fits beneath it, the radius cannot exceed half the
+                // band less what sits below. Anything larger pushes the wallet
+                // out of the foot and over the status line.
+                let head_h = 110.0; // caps + the number + the gap under it
+                // Only the status line sits under the crystal now — the rate
+                // moved inside it. A giant number below competed with the
+                // balance above and, kept centred, left no room for either.
+                let rate_h = 54.0;
+                let cr = (cw * 0.34)
+                    .min(band_h / 2.0 - rate_h)
+                    .clamp(110.0, 250.0);
+                let panel_h = (band_h - 40.0).clamp(300.0, 640.0);
 
                 ui.horizontal(|ui| {
                     ui.add_space(side);
-                    panel_frame(ui, pw, panel_h, |ui| {
-                        machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs, all_time);
+                    // panels are centred on the crystal, not hung from the top
+                    ui.vertical(|ui| {
+                        ui.set_width(pw);
+                        ui.add_space(((band_h - panel_h) / 2.0).max(0.0));
+                        panel_frame(ui, pw, panel_h, |ui| {
+                            machine_panel(ui, &p, cpu, mem, miner_cpu, miner_mem, net_kbs, mhs, running, eff_mhs, all_time);
+                        });
                     });
                     ui.add_space(gap);
-                    // the crystal and the hero rate under it
                     ui.vertical(|ui| {
                         ui.set_width(cw);
+                        // Everything above the crystal is sized so that the
+                        // crystal's own centre lands on band_h/2 exactly.
+                        ui.add_space(((band_h / 2.0) - cr - head_h).max(4.0));
+                        big_balance(ui, on_chain, cw);
+                        ui.add_space(14.0);
                         let (rect, resp) =
-                            ui.allocate_exact_size(Vec2::new(cw, cr * 2.05), Sense::click());
+                            ui.allocate_exact_size(Vec2::new(cw, cr * 2.0), Sense::click());
                         draw_crystal(ui, rect.center(), cr, running, self.spin, resp.hovered());
-                        ui.painter().text(
-                            rect.center(),
-                            Align2::CENTER_CENTER,
-                            if running { "MINING" } else { "START" },
-                            FontId::proportional((cr * 0.19).clamp(22.0, 38.0)),
-                            if running { BG } else { MINT },
-                        );
+                        // Mining, the crystal *is* the readout: the rate lives
+                        // where the label was, because a filled crystal has
+                        // already said "mining".
+                        if running {
+                            let c = rect.center();
+                            ui.painter().text(
+                                c - Vec2::new(0.0, cr * 0.06),
+                                Align2::CENTER_CENTER,
+                                format!("{mhs:.1}"),
+                                play_bold((cr * 0.42).clamp(34.0, 88.0)),
+                                BG,
+                            );
+                            ui.painter().text(
+                                c + Vec2::new(0.0, cr * 0.30),
+                                Align2::CENTER_CENTER,
+                                "MH/S",
+                                FontId::proportional((cr * 0.10).clamp(11.0, 18.0)),
+                                BG.gamma_multiply(0.75),
+                            );
+                        } else {
+                            ui.painter().text(
+                                rect.center(),
+                                Align2::CENTER_CENTER,
+                                "START",
+                                FontId::proportional((cr * 0.19).clamp(22.0, 38.0)),
+                                MINT,
+                            );
+                        }
                         if resp.clicked() {
                             start_stop = true;
                         }
                         if resp.hovered() {
                             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                         }
-                        ui.add_space(10.0);
-                        hero_rate(ui, mhs, running, &p, (cr * 0.44).clamp(52.0, 76.0));
-                        // the wallet belongs with the button that fills it
-                        ui.add_space(18.0);
-                        wallet_block(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
+                        ui.add_space(12.0);
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new(p.status.lock().unwrap().clone())
+                                    .color(MUTE)
+                                    .size(12.5),
+                            );
+                        });
                     });
                     ui.add_space(gap);
-                    panel_frame(ui, pw, panel_h, |ui| {
-                        let pi = self.pool.inner.lock().unwrap();
-                        payout_panel(ui, &pi, has_ledger, solo, on_chain, mhs, running, panel_h - 32.0);
+                    ui.vertical(|ui| {
+                        ui.set_width(pw);
+                        ui.add_space(((band_h - panel_h) / 2.0).max(0.0));
+                        panel_frame(ui, pw, panel_h, |ui| {
+                            let pi = self.pool.inner.lock().unwrap();
+                            payout_panel(ui, &pi, has_ledger, solo, mhs, running, panel_h - 32.0);
+                        });
                     });
                 });
 
+                // the actions, at the foot of the window and sized to be hit
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                    ui.add_space(22.0);
+                    wallet_block(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
+                });
             } else {
                 // ── narrow: the same organs, stacked on one axis ──────
                 let col_w = (avail_w - 44.0).min(600.0);
@@ -502,7 +560,9 @@ impl eframe::App for App {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
-                        ui.add_space(6.0);
+                        ui.add_space(10.0);
+                        big_balance(ui, on_chain, col_w);
+                        ui.add_space(12.0);
                         let (rect, resp) = ui.allocate_at_least(
                             Vec2::new(ui.available_width(), cr * 2.25),
                             Sense::click(),
@@ -539,7 +599,7 @@ impl eframe::App for App {
                                 ui.add_space(12.0);
                                 panel_frame(ui, col_w, 0.0, |ui| {
                                     let pi = self.pool.inner.lock().unwrap();
-                                    payout_panel(ui, &pi, has_ledger, solo, on_chain, mhs, running, 0.0);
+                                    payout_panel(ui, &pi, has_ledger, solo, mhs, running, 0.0);
                                 });
                                 ui.add_space(14.0);
                             });
@@ -673,6 +733,44 @@ fn badge(ui: &mut egui::Ui, text: &str, tint: Color32) {
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter().rect_stroke(rect, 999.0, Stroke::new(1.0, tint.gamma_multiply(0.6)));
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, tint);
+}
+
+/// The balance, at the top of the window: the number everything else exists
+/// to move. It is the one figure here that can grow without bound, so it is
+/// also the one allowed to shrink its own type rather than spill.
+fn big_balance(ui: &mut egui::Ui, on_chain: Option<f64>, w: f32) {
+    let (text, dim) = match on_chain {
+        Some(e) => (format!("{e:.4}"), e <= 0.0),
+        None => ("0.0000".to_string(), true),
+    };
+    let colour = if dim { MINT.gamma_multiply(0.55) } else { MINT };
+    let avail = (w - 90.0).max(80.0);
+    let mut size = 56.0f32;
+    while size > 18.0 {
+        let g = ui.painter().layout_no_wrap(text.clone(), play_bold(size), colour);
+        if g.size().x <= avail {
+            break;
+        }
+        size -= 2.0;
+    }
+    ui.vertical_centered(|ui| {
+        caps(ui, "your balance on chain", 9.5, MUTE);
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            let g = ui.painter().layout_no_wrap(text.clone(), play_bold(size), colour);
+            let row = g.size().x + 46.0;
+            ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
+            let mut job = egui::text::LayoutJob::default();
+            job.append(
+                &text,
+                0.0,
+                egui::TextFormat { font_id: play_bold(size), color: colour, ..Default::default() },
+            );
+            ui.label(job);
+            ui.add_space(7.0);
+            caps(ui, "erg", 12.0, MUTE);
+        });
+    });
 }
 
 /// A meter that separates *what erga costs* from what the machine was doing
@@ -865,7 +963,6 @@ fn payout_panel(
     pi: &pool::PoolInfo,
     has_ledger: bool,
     solo: bool,
-    on_chain: Option<f64>,
     mhs: f64,
     running: bool,
     // target_h: the height this panel must come out at, so the balance can
@@ -899,48 +996,10 @@ fn payout_panel(
     ui.add_space(12.0);
     ui.separator();
     ui.add_space(10.0);
-    // The balance takes whatever height is left over. The spacer is measured
-    // from what the panel has *used* (`min_rect`), not from what it thinks is
-    // available — the latter is unbounded here and overshoots, which is what
-    // left the two panels 62px apart.
-    const FOOT: f32 = 96.0; // separator + label + the number
-    if target_h > 0.0 {
-        let used = ui.min_rect().height();
-        ui.add_space((target_h - used - FOOT).max(10.0));
-    } else {
-        ui.add_space(14.0);
-    }
-    ui.separator();
-    ui.add_space(9.0);
-    caps(ui, "your balance on chain", 9.5, MUTE);
-    ui.add_space(3.0);
-    let (text, dim) = match on_chain {
-        Some(e) => (format!("{e:.4}"), e <= 0.0),
-        None => ("0.0000".to_string(), true),
-    };
-    let colour = if dim { MINT.gamma_multiply(0.6) } else { MINT };
-    // the one number here that can grow without bound, so the one allowed to
-    // shrink its own type rather than spill out of the panel
-    let avail = (ui.available_width() - 52.0).max(60.0);
-    let mut size = 42.0f32;
-    while size > 15.0 {
-        let g = ui.painter().layout_no_wrap(text.clone(), play_bold(size), colour);
-        if g.size().x <= avail {
-            break;
-        }
-        size -= 1.5;
-    }
-    ui.horizontal(|ui| {
-        let mut job = egui::text::LayoutJob::default();
-        job.append(
-            &text,
-            0.0,
-            egui::TextFormat { font_id: play_bold(size), color: colour, ..Default::default() },
-        );
-        ui.label(job);
-        ui.add_space(6.0);
-        caps(ui, "erg", 11.0, MUTE);
-    });
+    // The panel ends with the ledger. The balance moved to the head of the
+    // window, where it belongs: it is the reason for all of this, not a
+    // footnote to the pool's bookkeeping.
+    let _ = target_h;
 }
 
 
@@ -972,19 +1031,22 @@ fn wallet_block(
                 .size(13.0)
                 .color(CREAM.gamma_multiply(0.9)),
         );
-        ui.add_space(10.0);
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
-            // centre the row of actions under the address
-            let w = 300.0;
-            ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
-            if ui.button(egui::RichText::new("copy").size(10.5)).clicked() {
+            // These are the only things you do here besides press the
+            // crystal, so they are sized to be hit rather than squinted at.
+            ui.spacing_mut().button_padding = Vec2::new(22.0, 11.0);
+            ui.spacing_mut().item_spacing.x = 12.0;
+            let row = 430.0;
+            ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
+            if ui.button(egui::RichText::new("copy").size(13.5)).clicked() {
                 ui.output_mut(|o| o.copied_text = addr.to_string());
             }
-            if ui.button(egui::RichText::new("back up").size(10.5)).clicked() {
+            if ui.button(egui::RichText::new("back up").size(13.5)).clicked() {
                 *want_backup = true;
             }
             if ui
-                .button(egui::RichText::new("report a bug").size(10.5))
+                .button(egui::RichText::new("report a bug").size(13.5))
                 .on_hover_text(
                     "opens a GitHub issue with your machine, the app state and the recent log already filled in",
                 )
