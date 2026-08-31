@@ -6,6 +6,26 @@
 use std::time::Instant;
 use sysinfo::{Networks, Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
+/// The miner's memory as macOS itself accounts it: `ri_phys_footprint`, the
+/// same figure `footprint` and Activity Monitor report.
+///
+/// Resident size — what sysinfo reads — misses the one thing that matters
+/// here: the epoch table lives in a Metal buffer, which the kernel books
+/// under IOAccelerator, not under the process's resident pages. Measured on
+/// a live miner: footprint 7105 MB, resident 30 MB. A meter fed the second
+/// number says the miner costs nothing, which is exactly wrong.
+fn phys_footprint(pid: u32) -> Option<u64> {
+    let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+    let r = unsafe {
+        libc::proc_pid_rusage(
+            pid as libc::c_int,
+            libc::RUSAGE_INFO_V4,
+            &mut info as *mut _ as *mut libc::rusage_info_t,
+        )
+    };
+    (r == 0).then_some(info.ri_phys_footprint)
+}
+
 pub struct Sys {
     sys: System,
     nets: Networks,
@@ -77,7 +97,10 @@ impl Sys {
                 let cores = self.sys.cpus().len().max(1) as f32;
                 self.miner_cpu = (proc.cpu_usage() / 100.0 / cores).clamp(0.0, 1.0);
                 let total = self.sys.total_memory().max(1) as f32;
-                self.miner_mem = (proc.memory() as f32 / total).clamp(0.0, 1.0);
+                // Footprint first — it is the only figure that sees the epoch
+                // table. Resident size is the fallback, not the answer.
+                let bytes = phys_footprint(miner_pid.unwrap_or(0)).unwrap_or(proc.memory());
+                self.miner_mem = (bytes as f32 / total).clamp(0.0, 1.0);
             }
         }
         self.last = Instant::now();

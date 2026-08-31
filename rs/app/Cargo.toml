@@ -5,6 +5,7 @@ edition = "2021"
 description = "One-button ERGO miner for Apple Silicon"
 
 [dependencies]
+libc = "0.2"
 erga-miner   = { path = "../miner" }
 erga-wallet  = { path = "../wallet" }
 eframe       = { version = "0.28", default-features = false, features = ["glow", "default_fonts"] }

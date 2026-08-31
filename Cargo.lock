@@ -1059,6 +1059,7 @@ dependencies = [
  "egui",
  "erga-miner",
  "erga-wallet",
+ "libc",
  "serde_json",
  "sysinfo",
  "tray-icon",
