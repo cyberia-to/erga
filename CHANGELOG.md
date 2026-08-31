@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.23.0] — 2026-08-31
+
+### Changed
+
+- The seed screen's way out sits at the foot of the window, at exactly the
+  height of the action bar it replaces — measured at 0 px apart. A button that
+  moves when the screen changes makes you hunt for it with the mouse.
+
+
 ## [0.22.0] — 2026-08-31
 
 ### Changed

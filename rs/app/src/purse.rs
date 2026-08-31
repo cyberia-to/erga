@@ -159,13 +159,18 @@ pub fn backup_screen(ui: &mut egui::Ui, seed: Option<&str>) -> bool {
                 ui.label(egui::RichText::new("no seed to show").color(CORAL).size(13.0));
             }
         }
-        ui.add_space(26.0);
+    });
+    // The way out sits where every other action in this app sits: the foot of
+    // the window, at the same height as the action bar it replaces. A button
+    // that moves when the screen changes makes you hunt for it.
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+        ui.add_space(24.0);
         ui.horizontal(|ui| {
-            ui.spacing_mut().button_padding = Vec2::new(22.0, 11.0);
-            let row = row_width(ui, &["I've written them down"], 13.5);
+            ui.spacing_mut().button_padding = Vec2::new(24.0, 12.0);
+            let row = row_width(ui, &["I've written them down"], 14.0);
             ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
             if ui
-                .button(egui::RichText::new("I've written them down").size(13.5))
+                .button(egui::RichText::new("I've written them down").size(14.0))
                 .clicked()
             {
                 done = true;
