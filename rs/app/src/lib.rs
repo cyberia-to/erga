@@ -107,6 +107,10 @@ struct App {
     pool: pool::PoolState,
     pool_idx: usize,
     wallet: Result<erga_wallet::Wallet, String>,
+    /// The effective rate, smoothed. The raw figure steps every time a table
+    /// rebuild stalls the numerator while the clock keeps running, and a
+    /// number meant to say "this is your real pace" should drift, not twitch.
+    eff_smooth: Option<f64>,
     /// Whether the window had focus last frame, so the click that merely
     /// brings it forward can be swallowed.
     was_focused: bool,
@@ -150,6 +154,7 @@ impl App {
             pool,
             pool_idx: idx,
             wallet,
+            eff_smooth: None,
             was_focused: true,
             tray: None,
             tray_tried: false,
@@ -293,6 +298,17 @@ impl eframe::App for App {
             let h = self.miner.p.hashed.load(std::sync::atomic::Ordering::Relaxed);
             (secs > 5.0 && h > 0).then(|| h as f64 / secs / 1e6)
         });
+        // ~15 s to settle at four frames a second: slow enough to read as a
+        // trend, quick enough to follow a real change in the machine.
+        if let Some(e) = eff_mhs {
+            self.eff_smooth = Some(match self.eff_smooth {
+                Some(prev) => prev + (e - prev) * 0.017,
+                None => e,
+            });
+        } else {
+            self.eff_smooth = None;
+        }
+        let eff_mhs = self.eff_smooth;
         let all_time = {
             use std::sync::atomic::Ordering::Relaxed;
             (
@@ -357,9 +373,9 @@ impl eframe::App for App {
                     ui.add(
                         egui::Image::new(egui::load::SizedTexture::new(
                             tex.id(),
-                            Vec2::splat(26.0),
+                            Vec2::splat(34.0),
                         ))
-                        .fit_to_exact_size(Vec2::splat(26.0)),
+                        .fit_to_exact_size(Vec2::splat(34.0)),
                     );
                     ui.add_space(9.0);
                 }
@@ -470,22 +486,23 @@ impl eframe::App for App {
                 let (pw, gap) = (330.0, 30.0);
                 let cw = (avail_w - side * 2.0 - pw * 2.0 - gap * 2.0).max(260.0);
                 // the actions own the foot of the window
-                // measured against what the foot actually holds: the bar, the
-                // address, and the air around them. Under-reserving it is what
-                // pressed the status line against the wallet label.
-                let foot_h = 186.0;
+                // the foot holds the action bar and the air around it; the
+                // address moved up to close the centre column
+                let foot_h = 96.0;
                 let band_h = (avail_h - foot_h - 16.0).max(340.0);
                 // For the crystal's centre to land on band_h/2 while the rate
                 // still fits beneath it, the radius cannot exceed half the
                 // band less what sits below. Anything larger pushes the wallet
                 // out of the foot and over the status line.
-                let head_h = 132.0; // caps + the number + the gap under it
-                // Only the status line sits under the crystal now — the rate
-                // moved inside it. A giant number below competed with the
-                // balance above and, kept centred, left no room for either.
-                let rate_h = 18.0;
+                // Balance, crystal, address read as one column, so the air
+                // above the crystal and the air below it are the same number.
+                // The blocks differ in height; the *gaps* are what the eye
+                // measures symmetry by.
+                const GAP: f32 = 40.0;
+                let balance_h = 78.0; // the number, at its largest
+                let addr_h = 24.0;
                 let cr = (cw * 0.34)
-                    .min(band_h / 2.0 - rate_h)
+                    .min(band_h / 2.0 - GAP - addr_h - 12.0)
                     .clamp(110.0, 250.0);
                 // sized to their content, not to the window: a panel that
                 // stretches is mostly empty
@@ -514,14 +531,20 @@ impl eframe::App for App {
                     ui.add_space(gap);
                     ui.vertical(|ui| {
                         ui.set_width(cw);
-                        // Everything above the crystal is sized so that the
-                        // crystal's own centre lands on band_h/2 exactly.
-                        ui.add_space(((band_h / 2.0) - cr - head_h).max(4.0));
+                        // Sized so the crystal's own centre lands on band_h/2.
+                        ui.add_space(((band_h / 2.0) - cr - GAP - balance_h).max(4.0));
                         big_balance(ui, on_chain, cw);
-                        ui.add_space(34.0);
+                        // The balance block carries empty space under its
+                        // digits — the ERG row and the font's descent — so the
+                        // gap above needs to be *smaller* than the one below
+                        // to look the same. Equal constants look unequal, and
+                        // looking equal is the only kind that counts.
+                        ui.add_space(GAP - 28.0);
                         if crystal_button(ui, cw, cr, running, self.spin, press, mhs) {
                             start_stop = true;
                         }
+                        ui.add_space(GAP);
+                        wallet_block(ui, addr_opt.as_deref());
                     });
                     ui.add_space(gap);
                     ui.vertical(|ui| {
@@ -536,11 +559,8 @@ impl eframe::App for App {
 
                 // the address, then the bar hard against the bottom edge
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                    ui.add_space(20.0);
+                    ui.add_space(24.0);
                     action_bar(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report);
-                    ui.add_space(16.0);
-                    wallet_block(ui, addr_opt.as_deref());
-                    ui.add_space(44.0); // clear of the status line above
                 });
             } else {
                 // ── narrow: the same organs, stacked on one axis ──────

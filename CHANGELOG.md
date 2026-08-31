@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.21.0] — 2026-08-31
+
+### Changed
+
+- Balance, crystal and address read as one column with equal air above and
+  below the crystal. Equal constants looked unequal — the balance block
+  carries empty space under its digits — so the gap above is smaller by
+  exactly what that block adds. Looking equal is the only kind that counts.
+- The header icon is a third larger.
+- The effective rate is smoothed over about fifteen seconds. The raw figure
+  steps every time a table rebuild stalls the numerator while the clock keeps
+  running, and a number that says "this is your real pace" should drift rather
+  than twitch.
+
+
 ## [0.20.0] — 2026-08-31
 
 ### Changed
