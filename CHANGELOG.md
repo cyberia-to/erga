@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.22.0] — 2026-08-31
+
+### Changed
+
+- The menu bar wears erga's own mark rather than a hexagon glyph. It is the
+  same artwork the Dock and the window use — box-averaged down to 22 points
+  and keyed out of its near-black plate, which would otherwise read as a black
+  tile up there.
+
+### Fixed
+
+- A doubled rule in the payout panel. The first belonged to the balance block
+  that moved to the head of the window in v0.13.0, and had been drawing a
+  line under nothing ever since.
+
+
 ## [0.21.0] — 2026-08-31
 
 ### Changed

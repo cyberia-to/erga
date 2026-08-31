@@ -113,13 +113,10 @@ pub fn payout_panel(
         caps(ui, "reading the pool ledger…", 9.5, MUTE);
     }
 
-    ui.add_space(12.0);
-    ui.separator();
-    ui.add_space(10.0);
     // What you have earned across every run belongs with earnings, not with
     // the machine's vital signs.
     if all_time.0 > 0 || all_time.1 > 0 {
-        ui.add_space(12.0);
+        ui.add_space(14.0);
         ui.separator();
         ui.add_space(9.0);
         caps(ui, "all time", 9.5, MUTE.gamma_multiply(0.85));
