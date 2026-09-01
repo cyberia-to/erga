@@ -105,37 +105,6 @@ pub fn badge(ui: &mut egui::Ui, text: &str, tint: Color32) {
 /// A pill that toggles, drawn to the same metric as `badge` so the header
 /// reads as one row. egui's checkbox draws a circle and a label, which is a
 /// different shape language from the controls beside it.
-pub fn pill_toggle(ui: &mut egui::Ui, text: &str, on: &mut bool) -> bool {
-    let galley = ui.painter().layout_no_wrap(
-        text.into(),
-        FontId::proportional(10.5),
-        if *on { BG } else { MINT },
-    );
-    let pad = ui.spacing().button_padding;
-    let size = Vec2::new(galley.size().x + pad.x * 2.0, CTRL_H);
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    let hot = resp.hovered();
-    if *on {
-        ui.painter().rect_filled(rect, 999.0, MINT.gamma_multiply(if hot { 1.0 } else { 0.88 }));
-    } else if hot {
-        ui.painter().rect_filled(rect, 999.0, MINT.gamma_multiply(0.10));
-    }
-    ui.painter().rect_stroke(
-        rect,
-        999.0,
-        Stroke::new(1.0, MINT.gamma_multiply(if *on || hot { 0.95 } else { 0.45 })),
-    );
-    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, MINT);
-    if hot {
-        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
-    }
-    if resp.clicked() {
-        *on = !*on;
-        return true;
-    }
-    false
-}
-
 /// The app icon, as a texture, decoded once and kept. Same bytes the bundle
 /// ships — the window and the Dock cannot drift apart.
 pub fn load_icon(ctx: &egui::Context) -> Option<egui::TextureHandle> {
@@ -152,15 +121,20 @@ pub fn load_icon(ctx: &egui::Context) -> Option<egui::TextureHandle> {
 /// Three separate toggles would let you pick two, or none, and mining is
 /// always at exactly one intensity. The shape says so. Same height as every
 /// other header control, so the row cannot step.
-pub fn segmented(ui: &mut egui::Ui, options: &[&str], idx: &mut usize) -> bool {
-    let pad = ui.spacing().button_padding.x;
+pub fn bar_segmented(
+    ui: &mut egui::Ui,
+    options: &[&str],
+    idx: &mut usize,
+    h: f32,
+    font: f32,
+) -> bool {
     let galleys: Vec<_> = options
         .iter()
-        .map(|t| ui.painter().layout_no_wrap((*t).to_string(), FontId::proportional(10.5), MINT))
+        .map(|t| ui.painter().layout_no_wrap((*t).to_string(), FontId::proportional(font), MINT))
         .collect();
-    let cells: Vec<f32> = galleys.iter().map(|g| g.size().x + pad * 2.0).collect();
+    let cells: Vec<f32> = galleys.iter().map(|g| g.size().x + 26.0).collect();
     let total: f32 = cells.iter().sum();
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(total, CTRL_H), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(total, h), Sense::click());
     let hot = resp.hovered();
 
     ui.painter().rect_stroke(
@@ -172,7 +146,7 @@ pub fn segmented(ui: &mut egui::Ui, options: &[&str], idx: &mut usize) -> bool {
     let mut changed = false;
     let mut x = rect.min.x;
     for (i, (g, w)) in galleys.into_iter().zip(&cells).enumerate() {
-        let cell = egui::Rect::from_min_size(Pos2::new(x, rect.min.y), Vec2::new(*w, CTRL_H));
+        let cell = egui::Rect::from_min_size(Pos2::new(x, rect.min.y), Vec2::new(*w, rect.height()));
         let over = resp.hover_pos().is_some_and(|p| cell.contains(p));
         if i == *idx {
             ui.painter().rect_filled(cell, 999.0, MINT.gamma_multiply(if hot { 1.0 } else { 0.88 }));

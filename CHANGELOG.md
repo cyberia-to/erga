@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.30.0] — 2026-09-01
+
+### Changed
+
+- **Every control moved to one bar at the foot of the window**, the way a
+  console program lays its commands along the bottom: solo, max·eco·min, the
+  pool, copy address, change address, back up, report a bug — each with a
+  keycap showing the key that also does it. The header keeps what it always
+  meant to say: the name, the version, the licence, the run's status and its
+  batteries.
+
+### Added
+
+- **Hotkeys.** `space` presses the crystal; `s` solo; `m` cycles
+  max→eco→min; `p` switches the pool; `c` copies the address; `a` opens the
+  address screen; `b` backs up the seed; `r` reports a bug; `esc` leaves the
+  seed and address screens. Keys are matched by physical position, so a
+  Cyrillic layout mines exactly like a Latin one. Letters never fire while a
+  text field has focus, and full-window screens swallow them entirely.
+- The pool control is now one pill that cycles — with two verified pools,
+  cycling *is* choosing, and the bar keeps a single shape language instead of
+  one dropdown among pills.
+
+
 ## [0.29.0] — 2026-08-31
 
 ### Added

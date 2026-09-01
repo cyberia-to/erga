@@ -10,6 +10,7 @@
 use eframe::egui;
 use egui::{Color32, FontId, Sense, Stroke, Vec2};
 
+use crate::theme;
 use crate::theme::caps;
 
 /// The exact width a row of buttons will occupy. Measure the spacing you are
@@ -60,57 +61,152 @@ pub fn wallet_block(ui: &mut egui::Ui, addr: Option<&str>) {
     });
 }
 
-/// The action bar: the only things you do here besides press the crystal,
-/// so they sit at the foot of the window where a hand expects them, sized to
-/// be hit rather than squinted at.
-pub fn action_bar(
-    ui: &mut egui::Ui,
-    addr: Option<&str>,
-    want_backup: &mut bool,
-    want_report: &mut bool,
-    want_address: &mut bool,
-) {
+/// The three intensity settings, in the order the segmented control shows.
+pub const MODES: [&str; 3] = ["max", "eco", "min"];
+
+/// Everything the control bar needs to draw itself.
+pub struct BarView<'a> {
+    pub has_addr: bool,
+    pub has_solo: bool,
+    pub solo: bool,
+    pub mode_idx: usize,
+    pub pool_label: &'a str,
+}
+
+/// What the user did to the bar this frame.
+pub enum BarEvent {
+    ToggleSolo,
+    Mode(usize),
+    CyclePool,
+    Copy,
+    Address,
+    Backup,
+    Report,
+}
+
+/// Height of every bar item, so a row of different controls reads as one bar.
+const BAR_H: f32 = 40.0;
+
+/// A key chip: the letter that also does it, drawn like a keycap so the bar
+/// reads the way a console program's function row does.
+fn keycap(ui: &mut egui::Ui, k: &str) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(20.0, BAR_H), Sense::hover());
+    let chip = egui::Rect::from_center_size(rect.center(), Vec2::new(20.0, 20.0));
+    ui.painter().rect_filled(chip, 5.0, crate::MINT.gamma_multiply(0.10));
+    ui.painter()
+        .rect_stroke(chip, 5.0, Stroke::new(1.0, crate::MUTE.gamma_multiply(0.8)));
+    let g = ui
+        .painter()
+        .layout_no_wrap(k.into(), FontId::monospace(11.0), CREAM.gamma_multiply(0.75));
+    ui.painter().galley(chip.center() - g.size() / 2.0, g, CREAM);
+}
+
+/// One bar pill. `on` fills it the way the solo toggle always filled.
+fn bar_pill(ui: &mut egui::Ui, text: &str, on: bool, enabled: bool) -> bool {
+    let galley = ui.painter().layout_no_wrap(
+        text.into(),
+        FontId::proportional(13.0),
+        if on { crate::BG } else { MINT },
+    );
+    let size = Vec2::new(galley.size().x + 32.0, BAR_H);
+    let (rect, resp) = ui.allocate_exact_size(
+        size,
+        if enabled { Sense::click() } else { Sense::hover() },
+    );
+    let hot = enabled && resp.hovered();
+    let dim = if enabled { 1.0 } else { 0.4 };
+    if on {
+        ui.painter()
+            .rect_filled(rect, 999.0, MINT.gamma_multiply(if hot { 1.0 } else { 0.88 }));
+    } else if hot {
+        ui.painter().rect_filled(rect, 999.0, MINT.gamma_multiply(0.10));
+    }
+    ui.painter().rect_stroke(
+        rect,
+        999.0,
+        Stroke::new(1.0, MINT.gamma_multiply((if on || hot { 0.95 } else { 0.45 }) * dim)),
+    );
+    ui.painter().galley(
+        rect.center() - galley.size() / 2.0,
+        galley,
+        MINT.gamma_multiply(dim),
+    );
+    if hot {
+        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+    }
+    enabled && resp.clicked()
+}
+
+/// The control bar at the foot of the window: everything you do to erga
+/// besides pressing the crystal, each behind one key, the way a console
+/// program lays its commands along the bottom. Obvious beats tucked-away.
+pub fn control_bar(ui: &mut egui::Ui, v: &BarView) -> Option<BarEvent> {
+    let mut ev = None;
     ui.horizontal(|ui| {
-        ui.spacing_mut().button_padding = Vec2::new(24.0, 12.0);
-        ui.spacing_mut().item_spacing.x = 14.0;
-        let row = row_width(
-            ui,
-            &["copy address", "change address", "back up", "report a bug"],
-            14.0,
-        );
-        ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
-        let has = addr.is_some();
-        if ui
-            .add_enabled(has, egui::Button::new(egui::RichText::new("copy address").size(14.0)))
-            .clicked()
-        {
-            if let Some(a) = addr {
-                ui.output_mut(|o| o.copied_text = a.to_string());
+        ui.spacing_mut().item_spacing.x = 6.0;
+
+        // Measure the row before drawing it, so it can be centred exactly.
+        let text_w = |t: &str, f: FontId| {
+            ui.painter().layout_no_wrap(t.into(), f, MINT).size().x
+        };
+        let pill_w = |t: &str| text_w(t, FontId::proportional(13.0)) + 32.0;
+        let seg_w: f32 = MODES
+            .iter()
+            .map(|m| text_w(m, FontId::proportional(13.0)) + 26.0)
+            .sum();
+        let mut total = 0.0;
+        if v.has_solo {
+            total += 20.0 + 6.0 + pill_w("solo") + 14.0;
+        }
+        total += 20.0 + 6.0 + seg_w + 14.0;
+        total += 20.0 + 6.0 + pill_w(v.pool_label) + 14.0;
+        for t in ["copy address", "change address", "back up", "report a bug"] {
+            total += 20.0 + 6.0 + pill_w(t) + 14.0;
+        }
+        total -= 14.0; // no trailing gap
+        ui.add_space(((ui.available_width() - total) / 2.0).max(0.0));
+
+        let item_gap = |ui: &mut egui::Ui| ui.add_space(8.0);
+
+        if v.has_solo {
+            keycap(ui, "s");
+            if bar_pill(ui, "solo", v.solo, true) {
+                ev = Some(BarEvent::ToggleSolo);
             }
+            item_gap(ui);
         }
-        if ui
-            .button(egui::RichText::new("change address").size(14.0))
-            .on_hover_text("pay a different Ergo address — the one you already mine to")
-            .clicked()
-        {
-            *want_address = true;
+        keycap(ui, "m");
+        let mut idx = v.mode_idx;
+        if theme::bar_segmented(ui, &MODES, &mut idx, BAR_H, 13.0) {
+            ev = Some(BarEvent::Mode(idx));
         }
-        if ui
-            .add_enabled(has, egui::Button::new(egui::RichText::new("back up").size(14.0)))
-            .clicked()
-        {
-            *want_backup = true;
+        item_gap(ui);
+        keycap(ui, "p");
+        if bar_pill(ui, v.pool_label, false, true) {
+            ev = Some(BarEvent::CyclePool);
         }
-        if ui
-            .button(egui::RichText::new("report a bug").size(14.0))
-            .on_hover_text(
-                "opens a GitHub issue with your machine, the app state and the recent log already filled in",
-            )
-            .clicked()
-        {
-            *want_report = true;
+        item_gap(ui);
+        keycap(ui, "c");
+        if bar_pill(ui, "copy address", false, v.has_addr) {
+            ev = Some(BarEvent::Copy);
+        }
+        item_gap(ui);
+        keycap(ui, "a");
+        if bar_pill(ui, "change address", false, true) {
+            ev = Some(BarEvent::Address);
+        }
+        item_gap(ui);
+        keycap(ui, "b");
+        if bar_pill(ui, "back up", false, v.has_addr) {
+            ev = Some(BarEvent::Backup);
+        }
+        item_gap(ui);
+        keycap(ui, "r");
+        if bar_pill(ui, "report a bug", false, true) {
+            ev = Some(BarEvent::Report);
         }
     });
+    ev
 }
 
 /// What the payout-address screen decided this frame.

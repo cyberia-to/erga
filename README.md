@@ -178,6 +178,12 @@ sharing every one. The payout bar is replaced by the number that means
 something there — how long a block takes at your rate. (Solo against *your own
 node* is a different thing, and erga does not do it yet.)
 
+**Everything is one key away.** All controls live in a single bar at the foot
+of the window, console-style, each with its keycap: `space` presses the
+crystal, `s` solo, `m` cycles max·eco·min, `p` switches pools, `c` copies the
+address, `a` changes it, `b` backs up, `r` reports a bug. Keys match physical
+position, so any keyboard layout works.
+
 **It takes only what you allow.** `max · eco · min` beside the pool: full
 tilt, a quarter, or a tenth of the machine. It is a duty cycle — mine a batch,
 stand aside — so the number you see is the number being done, and eco leaves

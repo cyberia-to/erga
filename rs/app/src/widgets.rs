@@ -201,7 +201,7 @@ pub fn start_hint(ui: &mut egui::Ui) {
     // to nearly-off reads as a warning light rather than as an invitation.
     let a = 0.66 + 0.34 * (0.5 - 0.5 * ((t * 0.9).cos() as f32));
     ui.vertical_centered(|ui| {
-        caps(ui, "press the crystal to begin", 10.5, MINT.gamma_multiply(a));
+        caps(ui, "press the crystal to begin · or space", 10.5, MINT.gamma_multiply(a));
     });
 }
 

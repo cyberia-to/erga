@@ -80,8 +80,8 @@ use egui::{Color32, Vec2};
 
 use balance::BalanceState;
 use panels::{machine_panel, payout_panel};
-use purse::{action_bar, backup_screen, wallet_block};
-use theme::{badge, caps, load_icon, pill_toggle, play_bold, setup_fonts, setup_style};
+use purse::{backup_screen, wallet_block};
+use theme::{badge, caps, load_icon, play_bold, setup_fonts, setup_style};
 use widgets::{big_balance, crystal_button, human, panel_frame, start_hint};
 use miner::Miner;
 
@@ -268,6 +268,52 @@ impl App {
         self.store.payout.is_some()
     }
 
+    /// Flip solo, restarting a live session: the pool binds the mode to the
+    /// connection, so a change that did not reconnect would be a lie.
+    fn toggle_solo(&mut self) {
+        if !pools::has_solo(self.pool_idx) {
+            return;
+        }
+        self.store.solo = !self.store.solo;
+        self.store.save();
+        if self.miner.is_running() {
+            self.end();
+            self.begin();
+        }
+    }
+
+    /// Set the intensity. Writing the file is the whole mechanism: the miner
+    /// re-reads it twice a second, so this is felt without a restart.
+    fn set_mode(&mut self, idx: usize) {
+        self.store.intensity = purse::MODES[idx].to_string();
+        self.store.save();
+        store::write_intensity(purse::MODES[idx]);
+    }
+
+    fn cycle_mode(&mut self) {
+        let idx = purse::MODES
+            .iter()
+            .position(|m| *m == self.store.intensity)
+            .unwrap_or(0);
+        self.set_mode((idx + 1) % purse::MODES.len());
+    }
+
+    /// Move to the next pool. With two pools, cycling IS choosing — and it
+    /// keeps the bar one pill instead of a dropdown.
+    fn cycle_pool(&mut self) {
+        self.pool_idx = (self.pool_idx + 1) % pools::POOLS.len();
+        pools::save_choice(self.pool_idx);
+        // the new pool keeps its own books
+        if let Some(a) = self.address().map(|a| a.to_string()) {
+            self.pool.fetch(a, self.pool_idx);
+        }
+        if self.miner.is_running() {
+            // hop pools live: land on the new door mid-flight
+            self.end();
+            self.begin();
+        }
+    }
+
     /// Point the pool at a different address, or back at erga's own wallet.
     ///
     /// Mining restarts when it is running. The address is what the miner
@@ -411,7 +457,8 @@ impl eframe::App for App {
             // screen — and it puts itself away.
             if self.show_seed {
                 let seed = self.wallet.as_ref().ok().map(|w| w.mnemonic.clone());
-                if backup_screen(ui, seed.as_deref()) {
+                let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                if backup_screen(ui, seed.as_deref()) || esc {
                     self.show_seed = false;
                 }
                 return;
@@ -429,6 +476,11 @@ impl eframe::App for App {
                     external,
                 );
                 self.address_input = input;
+                let act = if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    purse::AddressAction::Cancel
+                } else {
+                    act
+                };
                 match act {
                     purse::AddressAction::None => {}
                     purse::AddressAction::Use(a) => {
@@ -542,65 +594,14 @@ impl eframe::App for App {
                     ui.add_space(6.0);
                     caps(ui, &format!("next table {next}%"), 9.5, MUTE);
                 }
+                // The controls this row used to carry live in the bar at the
+                // foot now, behind keys — where a hand and an eye both look.
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // ComboBox takes its height from interact_size; the badge
-                    // takes CTRL_H. Same number, so the row cannot step.
                     ui.spacing_mut().interact_size.y = CTRL_H;
                     ui.add_space(22.0);
                     badge(ui, "beta", AMBER);
-                    ui.add_space(8.0);
-                    let prev = self.pool_idx;
-                    egui::ComboBox::from_id_source("pool")
-                        .selected_text(
-                            egui::RichText::new(pools::POOLS[self.pool_idx].label).size(10.5),
-                        )
-                        .show_ui(ui, |ui| {
-                            for (i, pl) in pools::POOLS.iter().enumerate() {
-                                ui.selectable_value(&mut self.pool_idx, i, pl.label);
-                            }
-                        });
-                    // How hard to push, beside where the work goes. Writing
-                    // the file is the whole mechanism: the miner re-reads it
-                    // twice a second, so the switch is felt without throwing
-                    // away the epoch table for a restart.
-                    {
-                        const MODES: [&str; 3] = ["max", "eco", "min"];
-                        let mut idx = MODES
-                            .iter()
-                            .position(|m| *m == self.store.intensity)
-                            .unwrap_or(0);
-                        if theme::segmented(ui, &MODES, &mut idx) {
-                            self.store.intensity = MODES[idx].to_string();
-                            self.store.save();
-                            store::write_intensity(MODES[idx]);
-                        }
-                        ui.add_space(8.0);
-                    }
-                    if pools::has_solo(self.pool_idx) {
-                        let mut solo_on = self.store.solo;
-                        if pill_toggle(ui, "solo", &mut solo_on) {
-                            self.store.solo = solo_on;
-                            self.store.save();
-                            if running {
-                                self.end();
-                                self.begin();
-                            }
-                        }
-                        ui.add_space(8.0);
-                    }
-                    if self.pool_idx != prev {
-                        pools::save_choice(self.pool_idx);
-                        // the new pool keeps its own books
-                        if let Some(a) = self.address().map(|a| a.to_string()) {
-                            self.pool.fetch(a, self.pool_idx);
-                        }
-                        if running {
-                            // hop pools live: land on the new door mid-flight
-                            self.end();
-                            self.begin();
-                        }
-                    }
                 });
+
             });
 
             // ── one refresh, one snapshot, both layouts ───────────────
@@ -636,6 +637,40 @@ impl eframe::App for App {
             let mut want_report = false;
             let mut want_address = false;
             let mut start_stop = false;
+
+            // The keys the bar advertises. Guarded off text fields, and the
+            // seed and address screens returned before reaching here, so a
+            // letter can never fire behind another screen's back.
+            if !ui.ctx().wants_keyboard_input() {
+                use egui::Key;
+                let pressed = |k: Key| ui.input(|i| i.key_pressed(k));
+                if pressed(Key::Space) {
+                    start_stop = true;
+                }
+                if pressed(Key::S) {
+                    self.toggle_solo();
+                }
+                if pressed(Key::M) {
+                    self.cycle_mode();
+                }
+                if pressed(Key::P) {
+                    self.cycle_pool();
+                }
+                if pressed(Key::C) {
+                    if let Some(a) = self.address().map(|a| a.to_string()) {
+                        ui.output_mut(|o| o.copied_text = a);
+                    }
+                }
+                if pressed(Key::A) {
+                    want_address = true;
+                }
+                if pressed(Key::B) {
+                    want_backup = true;
+                }
+                if pressed(Key::R) {
+                    want_report = true;
+                }
+            }
 
             let wide = avail_w >= 1000.0;
             // The header has drawn by now, so ask again: the value taken
@@ -738,7 +773,32 @@ impl eframe::App for App {
                 // the address, then the bar hard against the bottom edge
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                     ui.add_space(24.0);
-                    action_bar(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report, &mut want_address);
+                    {
+                        let bv = purse::BarView {
+                            has_addr: addr_opt.is_some(),
+                            has_solo: pools::has_solo(self.pool_idx),
+                            solo: self.store.solo,
+                            mode_idx: purse::MODES
+                                .iter()
+                                .position(|m| *m == self.store.intensity)
+                                .unwrap_or(0),
+                            pool_label: pools::POOLS[self.pool_idx].label,
+                        };
+                        match purse::control_bar(ui, &bv) {
+                            Some(purse::BarEvent::ToggleSolo) => self.toggle_solo(),
+                            Some(purse::BarEvent::Mode(i)) => self.set_mode(i),
+                            Some(purse::BarEvent::CyclePool) => self.cycle_pool(),
+                            Some(purse::BarEvent::Copy) => {
+                                if let Some(a) = &addr_opt {
+                                    ui.output_mut(|o| o.copied_text = a.clone());
+                                }
+                            }
+                            Some(purse::BarEvent::Address) => want_address = true,
+                            Some(purse::BarEvent::Backup) => want_backup = true,
+                            Some(purse::BarEvent::Report) => want_report = true,
+                            None => {}
+                        }
+                    }
                 });
             } else {
                 // ── narrow: the same organs, stacked on one axis ──────
@@ -761,7 +821,32 @@ impl eframe::App for App {
                         ui.add_space(16.0);
                         wallet_block(ui, addr_opt.as_deref());
                         ui.add_space(14.0);
-                        action_bar(ui, addr_opt.as_deref(), &mut want_backup, &mut want_report, &mut want_address);
+                        {
+                        let bv = purse::BarView {
+                            has_addr: addr_opt.is_some(),
+                            has_solo: pools::has_solo(self.pool_idx),
+                            solo: self.store.solo,
+                            mode_idx: purse::MODES
+                                .iter()
+                                .position(|m| *m == self.store.intensity)
+                                .unwrap_or(0),
+                            pool_label: pools::POOLS[self.pool_idx].label,
+                        };
+                        match purse::control_bar(ui, &bv) {
+                            Some(purse::BarEvent::ToggleSolo) => self.toggle_solo(),
+                            Some(purse::BarEvent::Mode(i)) => self.set_mode(i),
+                            Some(purse::BarEvent::CyclePool) => self.cycle_pool(),
+                            Some(purse::BarEvent::Copy) => {
+                                if let Some(a) = &addr_opt {
+                                    ui.output_mut(|o| o.copied_text = a.clone());
+                                }
+                            }
+                            Some(purse::BarEvent::Address) => want_address = true,
+                            Some(purse::BarEvent::Backup) => want_backup = true,
+                            Some(purse::BarEvent::Report) => want_report = true,
+                            None => {}
+                        }
+                    }
                         ui.add_space(18.0);
 
                         ui.horizontal(|ui| {
