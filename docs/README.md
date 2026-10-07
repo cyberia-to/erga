@@ -92,3 +92,7 @@ Change it with `ERGA_DONATION=off`, `ERGA_DONATION=<address>` or
 | `cli/` | the command that opens it, and everything else |
 | `rs/blake-bench`, `rs/rtable-bench`, `rs/mine-bench` | the measurements that came first |
 | `packaging/` | the `.app`, the `.dmg`, and the icon as code |
+
+## further reading
+
+- [lithos.md](lithos.md) — Lithos (on-chain Ergo pool) researched 2026-10-07: what it is, erga against it, and what a pure-Rust client would cost.
