@@ -135,6 +135,119 @@ only 44k lines of Scala that are themselves two days into mainnet.
   removes the pool's fee and custody and adds LIT emissions. The absolute
   ERG/month for an M4 Max stays "a couple of dollars".
 
+## the Ergo node is NOT in the estimate above
+
+Every tier above keeps the **Scala Ergo node** (`ergo` 6.0.7, JVM) and talks
+to it over REST. A Lithos client cannot avoid a node: it needs
+`/mining/candidateWithTxsAndPk`, the `extraIndex` explorer routes
+(`/blockchain/box/unspent/byErgoTree` …), `/utxo/getBoxesBinaryProof`, and
+the mempool. There is no Rust Ergo node, and never has been a second node
+implementation in Ergo's seven years.
+
+What a Rust node would be, measured on the repos at 2026-10-07:
+
+| component | Scala today | Rust today (sigma-rust, 86.7k lines incl. 17k bindings) |
+|---|---|---|
+| ErgoTree IR + interpreter | sigma-state 6.0.7 | `ergotree-ir` 26k + `ergotree-interpreter` 19k — ErgoTree **V3 supported**, 114 v6 version gates; has `powHit`, `checkPow`, `fromBigEndianBytes`, `UnsignedBigInt`, `getVarFromInput`, `serialize`; **lacks `deserializeTo`, `encodeNbits`/`decodeNbits`** |
+| chain types, merkle, AVL+, NiPoPoW | scrypto + ergo-core | `ergo-chain-types` 2.2k, `ergo-merkle-tree` 1k, `ergo_avltree_rust`, `ergo-nipopow` 0.8k — present |
+| wallet / tx building / signing | ergo-wallet 2.4k | `ergo-lib` 10.6k — present |
+| **p2p** (handshake, sync, modifiers) | network 2.4k + scorex 1.8k + peer 0.5k | `ergo-p2p` **1k lines, roadmap-only stub** |
+| **history** (headers, sections, PoPoW bootstrap, storage) | 0.9k + 1.7k + popow 0.7k | none |
+| **UTXO state** (AVL+ authenticated digest, bit-exact) | state 1.5k + 0.5k + avldb 1.5k | none |
+| **mempool, mining candidate, difficulty (EIP-37), EIP-27 reemission, voting** | mempool 1.2k + mining 1.4k + 0.9k + settings 2.2k | none |
+| **extraIndex** (what Lithos reads) | history/extra 2.1k | none |
+| REST API | http/api 3.3k + 0.4k | none (client only: `ergo-rest` 1.7k) |
+| node wallet + scanning | 3.3k + 1.1k + 0.4k | partial via ergo-lib |
+
+Ergo node main code: **38.8k Scala** (root 26.2k, ergo-core 8.5k,
+ergo-wallet 2.4k, avldb 1.5k) + 32k tests, on top of sigma-state. A Rust
+node is a port of roughly all 39k lines onto sigma-rust, i.e. **60–90k lines
+of Rust, 9–18 engineer-months for one or two people** to reach a syncing,
+validating, mining-capable, indexed node — and that is before the risk that
+defines the project: one divergence in state-digest or validation rules and
+the node forks off mainnet silently. The interpreter being in Rust already is
+the one piece of luck; everything consensus-adjacent above it does not exist.
+
+For Lithos specifically, sigma-rust's gaps matter at tier 5 only: the nine
+fraud-proof contracts use `deserializeTo[Header]` (six of them) and
+`powHit`; the core contracts the client must *sign against* —
+Holding_Logic, Evaluation, Payout, Collateral_Mainnet, LIT_Emissions,
+MinerDictionary — use nothing beyond `getVarFromInput`, which sigma-rust
+has. So **tiers 1–4 are signable from Rust today; tier 5 waits on
+`deserializeTo` landing in sigma-rust** (or a Scala sidecar for fraud
+proofs).
+
+## economics — where "3–4× more profitable" comes from
+
+All numbers read live on 2026-10-07; sources are the explorer API, the
+LithosDex mainnet pool box, the contracts and `EmissionSchedule.scala`.
+
+**The chain.** 507 GH/s (difficulty 60.8T ÷ 120 s). Block subsidy is the
+EIP-27 floor, a flat **3 ERG**, since April 2026. Transaction fees average
+**0.011 ERG/block** (40-block sample, 7 tx/block). ERG = $0.308.
+
+**One Lithos block, by the contracts.** The lender posts 2.915 ERG and
+receives the coinbase: 3 ERG + the block's fees — a 3.09 % spread plus fees,
+~3.5 % per cycle. The holding box takes **2.9109 ERG** (97 %), paid to NISP
+submitters by score. LIT per activation at epoch 0: **620 LIT** — 480 to the
+holding box, 20 (4 %) to the block finder, **140 to founders** (100 team,
+25 investors, 15 auditors; 22.6 % of every block's LIT for the first
+1,000,000 activations). The public rate decays 500 → 450 → … → 50 LIT
+every 250k activations and stops at 2,825,000.
+
+**On ERG alone Lithos pays less than a pool.** 2.91 ERG vs ~2.97 at a 1 %
+PPLNS pool — a 2 % cut, plus the miner's own submission costs (one NISP tx
+per Lithos block, fee ~0.001 ERG, bond ≥ 0.002 ERG refunded). Block fees go
+to the lender, not the miners. MEV/batching/rent go to the pool but are
+small: a LithosDex executor fee is 0.003 ERG/order, storage rent collection
+ships **off**, and there are 7 transactions per Ergo block.
+
+**All of the multiplier is LIT.** LithosDex ERG:LIT (the only market) holds
+**4,274 ERG / 118,641 LIT → 0.036 ERG per LIT** ($0.011; implied FDV 36M ERG
+≈ $11M on a pool whose ERG side is **$1.3k deep**). History from the pool
+box lineage, 163 transactions:
+
+| date | ERG/LIT | 480 LIT in ERG | per-block value vs 3 ERG |
+|---|---|---|---|
+| 09-18 (seeded 10 ERG / 10k LIT) | 0.001 | 0.5 | 1.1× |
+| 09-21 | 0.0127–0.0151 | 6.1–7.2 | **3.0–3.4×** |
+| 10-01 | 0.0164 | 7.9 | 3.6× |
+| 10-04 | 0.0226–0.0277 | 10.8–13.3 | 4.6–5.4× |
+| 10-05 (mainnet) | 0.0293 | 14.1 | 5.7× |
+| 10-07 (today) | **0.036** | **17.3** | **6.7×** |
+
+So "3–4×" is exactly the late-September/early-October spot price applied to
+480 LIT — a marketing-period snapshot. At today's spot it is nominally
+6–7×; 3× needs LIT ≥ 0.0125 ERG, 4× needs ≥ 0.019 ERG.
+
+**Why the number cannot hold at scale.** Emission is indexed by activations,
+and an activation beyond the first 100 needs a *spent* collateral box, i.e.
+a Lithos block. Lithos has found **15 mainnet blocks** in its first ~30 h
+(founder payouts: 3 on 10-06, 15 on 10-07 → ~12/day), **~1.7 % of network
+hashrate**; emission box counter R4 = 114. At that share, LIT minted is
+~5,800/day ≈ 210 ERG/day at spot — already ~5 % of the pool's ERG side per
+day if sold. If Lithos took the whole network: 720 blocks × 480 = 345,600
+LIT/day ≈ 12,400 ERG/day of emissions against a 4,274 ERG pool, while the
+ERG subsidy for the same blocks is 2,160. The multiplier is the ratio
+(LIT price × 480) / 2.91; its numerator is set by a $1.3k pool and its
+denominator is fixed. It compresses toward 1× exactly as fast as miners
+adopt it — the standard shape of an emissions-subsidised yield.
+
+**For an M4 Max (60 MH/s = 1.18 × 10⁻⁴ of the network), per day:**
+
+| | pool (1 %) | Lithos, ERG | Lithos, LIT | Lithos total at spot |
+|---|---|---|---|---|
+| per day | 0.252 ERG | 0.247 ERG | 40.8 LIT = 1.47 ERG | **1.72 ERG ($0.53)** |
+| per month | 7.6 ERG ($2.3) | 7.4 ERG | 1,224 LIT ($13.6) | **$16** |
+
+— paid about 83 % of windows at the recommended τ (k = 13), after a
+commitment lag (65 blocks to start, 125 to be paid) and a 24-hour rollup
+(360 + 360 blocks), with a 60-block/2-hour window that must contain 10 super
+shares. No minimum hashrate: τ scales so any rig averages ~13 super shares;
+a smaller rig simply earns a smaller score. The honest statement for the
+app: "7 ERG a month, plus LIT whose current quote is worth 6× that and
+whose market is 4,000 ERG deep."
+
 ## recommendation
 
 1. **Tier 0 now** (one afternoon): a Linux box with node + Scala client,
