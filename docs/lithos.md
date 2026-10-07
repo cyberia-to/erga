@@ -177,6 +177,63 @@ has. So **tiers 1–4 are signable from Rust today; tier 5 waits on
 `deserializeTo` landing in sigma-rust** (or a Scala sidecar for fraud
 proofs).
 
+### a Rust Ergo node *with soft3* — what the substrate actually buys
+
+soft3's own thesis (`soft3/docs/chains-as-plugins.md`) splits a chain client
+into six concerns and claims four are substrate. Checked against the Ergo
+node's real line budget (38.8k Scala main), with each soft3 seat's state
+read from `soft3/status.md` on 2026-10-07:
+
+| concern | Ergo node today | soft3 seat | does it substitute? | lines it removes |
+|---|---|---|---|---|
+| consensus rules — 67 validation rules, EIP-37 difficulty, EIP-27 reemission, voting, Autolykos | ergo-core 8.5k + validation/settings 2.6k | adapter | **no** — irreducibly Ergo; sigma-rust gives `check_pow`, nbits, header codec | 0 |
+| ErgoTree execution **with the JIT cost model** | sigma-state 6.0.7 | sigma-rust (not soft3) | **partly** — interpreter yes; `Costs::cost_of(&self, _: &Expr)` is a stub, no tx/block verification API; `maxBlockCost` 7,030,268 is a consensus bound, so costs must be exact | 0 (adds work) |
+| state model — UTXO set as versioned AVL+ with consensus digest, rollback, UTXO-snapshot bootstrap | state 2k + avldb 1.5k + modifierprocessors 1.7k | bbg (live) | **no** — the digest is Ergo's AVL+ root, mandated in headers; bbg's polynomial commitment cannot replace it. `ergo_avltree_rust` (2.2k, in-memory prover/verifier) exists; the persistent versioned storage does not | 0 |
+| encoding — sigma serialization | ergo-core | tade (published) | **no** — sigma-rust already does it; tade is a different wire | 0 |
+| wire protocol — magic·code·length·blake2b-checksum frames, 13 message specs, handshake with peer features, over **TCP** | network 2.4k + scorex 1.8k + peer 0.5k | radio (live, QUIC/iroh) | **no, for mainnet** — the doc's own rule: "radio may make you faster, never blinder"; a mandatory legacy-peer quota means the Ergo TCP protocol must be implemented faithfully anyway. radio is additive (sidecar/overlay), not substitutive | 0 |
+| sync strategy — ErgoSyncInfo, Inv/RequestModifier/Modifiers, NiPoPoW bootstrap, snapshot chunks | synchronizer + history 2.6k | foculus (unwired, never deployed) | **no** — Ergo's fetch order is Ergo's | 0 |
+| mempool + block candidate (`candidateWithTxsAndPk`, what Lithos calls) | mempool 1.2k + mining 1.4k + core mining 0.9k | — | no | 0 |
+| extraIndex (the `/blockchain/*` routes Lithos reads) | history/extra 2.1k | inf (live) / bbg | **optional** — any KV works; inf could serve the query side later, not required | ~0 |
+| REST API — ~60 routes, Lithos uses ~25 | http/api 3.7k | `soft3 node` (2.3k: routes/requests/http/genesis) | **skeleton yes** — the shape, config, idempotency, error-code discipline; every route body is still Ergo-specific | ~1.5k |
+| node wallet + scanning | 4.9k | ergo-lib wallet + mudra | partly — ergo-lib signs; the node-wallet-as-key-holder can be *dropped* for a client that signs itself (erga already does) | ~3k if dropped |
+| actor plumbing (15 Akka actors) | nodeView 1k + local 0.5k | tokio tasks + channels | yes, trivially — not soft3-specific | ~1k |
+| build, release train, conformance snapshots, CLI conventions, honeycrisp for Blake2b/Autolykos | — | soft3 (live) | **yes** — real but non-consensus | infra, not lines |
+
+**Net: soft3 removes roughly 15–25 % of the work, all on the edges.** The
+~21k Scala that *is* Ergo — consensus, state digest, wire, sync, mempool,
+candidate — is exactly what chains-as-plugins assigns to the adapter, and it
+is 55 % of the node by lines and ~85 % of the risk. The doc's ratio test
+("adapter thousands, substrate tens of thousands") holds for a light client;
+it inverts for a full validating node, and the doc says as much:
+"implementing a legacy protocol faithfully is unglamorous and long … months
+per chain, and no amount of substrate quality removes it."
+
+Revised estimate, one to two engineers:
+
+| phase | what | months | gate |
+|---|---|---|---|
+| 0 | Ergo TCP wire + handshake + headers-only sync; PoW, nbits, EIP-37 retarget | 1–1.5 | 1.89M headers from mainnet peers, every difficulty matches |
+| 1 | **full block validation + persistent versioned AVL+ UTXO state**, 67 rules, EIP-27, voting; **exact JIT cost model added to sigma-rust** | 4–7 | replay genesis → tip, every header `stateRoot` bit-exact; this is where a Rust node lives or dies |
+| 2 | mempool, `candidateWithTxsAndPk`, the ~25 REST routes Lithos uses | 1.5–2 | erga + Rust Lithos client mine a block on testnet |
+| 3 | extraIndex (`/blockchain/*`) | 1–1.5 | Lithos client syncs its LFSM from it |
+| 4 | UTXO-snapshot bootstrap, NiPoPoW, wallet parity, API parity | 1–2 | drop-in for an operator |
+| + | soft3 extras — radio sidecar overlay, zheng-folded header proofs, inf over the index | additive | the N=1/N=2 surfaces from chains-as-plugins; none needed for Lithos |
+
+**With soft3: 50–75k lines of Rust, 8–14 engineer-months to a
+mainnet-syncing, validating, candidate-producing, indexed node** (vs 9–18
+without). The saving is real but modest; the dominant term is phase 1, and
+soft3 has nothing in it. The one genuinely large accelerator is not soft3
+but sigma-rust — and its missing cost model is the single biggest line item
+nobody has budgeted. Fixing it upstream is the contribution with the widest
+blast radius (every Rust Ergo tool inherits it).
+
+What soft3 *does* change is the order of goals, and that is worth more than
+the line savings: do step 0 of its roadmap (miner↔pool over the substrate —
+erga and our own pool) and step 1 (a provable Ergo light client on the AVL+
+root, `/utxo/getBoxesBinaryProof` already exists) before any full node.
+Neither needs the node; both are N=1; and a Lithos *client* in Rust (tiers
+1–4 above) needs neither — it needs the Scala node to keep running.
+
 ## economics — where "3–4× more profitable" comes from
 
 All numbers read live on 2026-10-07; sources are the explorer API, the
