@@ -1,0 +1,66 @@
+{
+  "revision": "14b40d667b7fa927f62f46423cd8096f01cf704f",
+  "overlay": [
+    {
+      "path": "rs/rtable-bench/src/lib.rs",
+      "sha256": "fdd25c9d5249a54ee8d9560f2876139c9cd266a86bad6ac2a3e0c9e639f2ad8d",
+      "bytes": 2188,
+      "lines": 70
+    },
+    {
+      "path": "rs/rtable-bench/src/main.rs",
+      "sha256": "ad4d75d4ec9633fe47d0e217fdf2174f3e6e581ec05bf7b34e5fc8876416cd56",
+      "bytes": 6675,
+      "lines": 209
+    },
+    {
+      "path": "rs/rtable-bench/src/table.rs",
+      "sha256": "7386cac27ce63741f5c9fc2c2d57fa87447b40ba6274c9ec88ed9861dc128bb6",
+      "bytes": 9085,
+      "lines": 242
+    },
+    {
+      "path": "rs/rtable-bench/src/probe.rs",
+      "sha256": "68d12ba1b865992a9ae165ec07f642ab558282d77d8336f4b96ea8eadc0d84d4",
+      "bytes": 5604,
+      "lines": 157
+    },
+    {
+      "path": "rs/rtable-bench/src/import_memory.rs",
+      "sha256": "616cc0204ba0610d78488cc81654a824079d860e3840dffc7f5835e0e4688b66",
+      "bytes": 4921,
+      "lines": 161
+    },
+    {
+      "path": "rs/rtable-bench/src/table/tests.rs",
+      "sha256": "09dd56e35045d377ea0ed5caa3cd7b55e9023ff1909cea86a9d620c9072cbfaf",
+      "bytes": 4913,
+      "lines": 140
+    },
+    {
+      "path": "rs/rtable-bench/src/probe/tests.rs",
+      "sha256": "c50c20c403a09d212e519fcb831017ca2e10356ac7017600148eae6954986b9c",
+      "bytes": 2550,
+      "lines": 72
+    },
+    {
+      "path": "rs/rtable-bench/tests/owner.rs",
+      "sha256": "c706d980ba7426f9d57eac974b13fef0814c0139a635bb7fd5bb940a946eb696",
+      "bytes": 2880,
+      "lines": 69
+    },
+    {
+      "path": "rs/rtable-bench/tests/support/vectors.rs",
+      "sha256": "d55ccb8ced46c346f1f1a58a4d374cf8472e51ade2b506e2facdde0946b5dc6a",
+      "bytes": 7068,
+      "lines": 207
+    },
+    {
+      "path": "specs/README.md",
+      "sha256": "700a184b5615c19b0690a597da9883f4c71397594894b05e13a924d70da4066c",
+      "bytes": 3866,
+      "lines": 82
+    }
+  ],
+  "claim": "Local candidate from exact committed sibling archives plus explicit source overlay; no release claim."
+}

@@ -1,0 +1,22 @@
+{
+  "source_revision": "14b40d667b7fa927f62f46423cd8096f01cf704f",
+  "replay_command": [
+    "nu",
+    "audit/2026-10-10-rtable-owner/verify.nu",
+    "audit/2026-10-10-rtable-owner"
+  ],
+  "replay": {
+    "stdout": "{\n  \"payloads\": 189,\n  \"commands\": 29,\n  \"raw_streams\": 58,\n  \"zero\": 13,\n  \"nonzero\": 16,\n  \"source_snapshots\": 2,\n  \"paths_per_snapshot\": 10,\n  \"reconstructed_review_streams\": 56,\n  \"command_dictionary_lossless\": true,\n  \"all_payload_hashes_match\": true,\n  \"reran_native_work\": false,\n  \"archive_sha256\": \"d8ac363e27d6fba2dc2f9a186420163a4b5533dac092cdeae63b0efc74a4999c\"\n}\n",
+    "stderr": "",
+    "exit_code": 0
+  },
+  "review_command": [
+    "ruby",
+    "/tmp/erga-rtable-code-verify.rb"
+  ],
+  "review": {
+    "stdout": "{\n  \"status\": \"verified\",\n  \"packs\": {\n    \"erga-rtable-owner-code-v1\": {\n      \"sections\": 210,\n      \"git\": 71,\n      \"lossless_json\": 31,\n      \"sha256\": \"c80831d1dbe9e37598071c734988495891dc0fac449e3d820bb16ad8835fb4e8\"\n    },\n    \"erga-rtable-owner-code-v2\": {\n      \"sections\": 154,\n      \"git\": 70,\n      \"lossless_json\": 33,\n      \"sha256\": \"95a32910eeeac0a66e03610b6980050ac671ad808b95363063c64d6a2e4faa17\"\n    }\n  },\n  \"complete_v1_inputs_represented\": true,\n  \"byte_references\": 2,\n  \"raw_streams_reconstructed\": 56,\n  \"command_records_reconstructed\": 29,\n  \"source_overlay_unchanged\": 10\n}\n",
+    "stderr": "",
+    "exit_code": 0
+  }
+}

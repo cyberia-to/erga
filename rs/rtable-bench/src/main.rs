@@ -10,12 +10,30 @@
 use std::time::Instant;
 
 use aruminium::Gpu;
-use rtable_bench::{Probe, RTable, ROW_BYTES, read_u64, write_u64};
+use rtable_bench::{Probe, RTable, ROW_BYTES};
+use std::error::Error;
 
-fn parse_log2n(args: &[String], i: usize, default: u32) -> u32 {
-    args.get(i)
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(default)
+fn parse_log2n(args: &[String], i: usize, default: u32) -> Result<u32, Box<dyn Error>> {
+    let value = match args.get(i) {
+        Some(value) => value.parse::<u32>()?,
+        None => default,
+    };
+    if value > 32 {
+        return Err("log2N must be at most 32".into());
+    }
+    Ok(value)
+}
+
+fn dimensions(log2n: u32) -> Result<(u64, u64), Box<dyn Error>> {
+    if log2n > 32 {
+        return Err("log2N must be at most 32".into());
+    }
+    let n = 1u64.checked_shl(log2n).ok_or("row count overflow")?;
+    Ok((
+        n,
+        n.checked_mul(ROW_BYTES as u64)
+            .ok_or("table byte count overflow")?,
+    ))
 }
 
 fn human_bytes(b: u64) -> String {
@@ -29,19 +47,14 @@ fn human_bytes(b: u64) -> String {
     format!("{v:.2} {}", units[u])
 }
 
-fn cmd_verify(log2n: u32) {
-    let n = 1u64 << log2n;
-    let bytes = n * ROW_BYTES as u64;
-    println!(
-        "Verify: N = 2^{log2n} = {n} rows  ({})",
-        human_bytes(bytes)
-    );
+fn cmd_verify(log2n: u32) -> Result<(), Box<dyn Error>> {
+    let (n, bytes) = dimensions(log2n)?;
+    println!("Verify: N = 2^{log2n} = {n} rows  ({})", human_bytes(bytes));
 
-    let gpu = Gpu::open().expect("open gpu");
+    let gpu = Gpu::open()?;
     println!("  device: {}", gpu.name());
 
-    let table = RTable::open(&gpu, n).expect("alloc R-table");
-    println!("  IOSurface id: {}", table.iosurface_id());
+    let mut table = RTable::open(&gpu, n)?;
 
     let threads = std::thread::available_parallelism()
         .map(|p| p.get())
@@ -49,7 +62,7 @@ fn cmd_verify(log2n: u32) {
     println!("  building on {threads} CPU threads...");
 
     let t0 = Instant::now();
-    table.build_parallel(0, threads);
+    table.build_parallel(0, threads)?;
     let build_dt = t0.elapsed().as_secs_f64();
     let build_mbps = (bytes as f64) / build_dt / 1e6;
     println!(
@@ -58,57 +71,51 @@ fn cmd_verify(log2n: u32) {
     );
 
     // CPU and GPU each compute a checksum over a fixed pseudorandom
-    // index set. Identical values prove zero-copy sharing.
+    // index set. This checks byte agreement for these inputs.
     let seed: u64 = 0xA5A5_A5A5_DEAD_BEEF;
     let probe_count: u32 = 1_048_576;
 
     let t0 = Instant::now();
-    let cpu_sum = table.cpu_checksum(seed, probe_count);
+    let cpu_sum = table.cpu_checksum(seed, probe_count)?;
     let cpu_dt = t0.elapsed().as_secs_f64();
     println!(
         "  CPU checksum over {probe_count} random reads: {:016x}  ({:.3}s)",
         cpu_sum, cpu_dt
     );
 
-    let probe = Probe::open(gpu).expect("compile probe kernel");
-    let acc_buf = probe.gpu.buffer(8).expect("alloc acc buf");
+    let mut probe = Probe::open(&gpu)?;
 
     // Reset accumulator, dispatch, read back.
-    write_u64(&acc_buf, 0);
     let t0 = Instant::now();
-    probe.run(&table, &acc_buf, seed, probe_count);
+    let gpu_sum = probe.run(&mut table, seed, probe_count)?;
     let gpu_dt = t0.elapsed().as_secs_f64();
-    let gpu_sum = read_u64(&acc_buf);
     println!(
         "  GPU checksum over {probe_count} random reads: {:016x}  ({:.3}s)",
         gpu_sum, gpu_dt
     );
 
     if cpu_sum == gpu_sum {
-        println!("PASS: CPU and GPU read the same IOSurface-backed bytes");
+        println!("PASS: CPU and GPU checksums agree for the built table");
     } else {
-        println!("FAIL: CPU != GPU — zero-copy sharing broken");
-        std::process::exit(1);
+        println!("FAIL: CPU and GPU checksums differ");
+        return Err("GPU and CPU checksum mismatch".into());
     }
+    Ok(())
 }
 
-fn cmd_bench(log2n: u32) {
-    let n = 1u64 << log2n;
-    let bytes = n * ROW_BYTES as u64;
-    println!(
-        "Bench: N = 2^{log2n} = {n} rows  ({})",
-        human_bytes(bytes)
-    );
+fn cmd_bench(log2n: u32) -> Result<(), Box<dyn Error>> {
+    let (n, bytes) = dimensions(log2n)?;
+    println!("Bench: N = 2^{log2n} = {n} rows  ({})", human_bytes(bytes));
 
-    let gpu = Gpu::open().expect("open gpu");
-    let table = RTable::open(&gpu, n).expect("alloc R-table");
+    let gpu = Gpu::open()?;
+    let mut table = RTable::open(&gpu, n)?;
     let threads = std::thread::available_parallelism()
         .map(|p| p.get())
         .unwrap_or(8);
 
     // Build (timed)
     let t0 = Instant::now();
-    table.build_parallel(0, threads);
+    table.build_parallel(0, threads)?;
     let build_dt = t0.elapsed().as_secs_f64();
     let build_mbps = (bytes as f64) / build_dt / 1e6;
     println!(
@@ -119,17 +126,16 @@ fn cmd_bench(log2n: u32) {
     // Single correctness check before bandwidth runs.
     let seed: u64 = 0xC0FF_EE00_BEEF_DEAD;
     let check_count: u32 = 65_536;
-    let cpu_check = table.cpu_checksum(seed, check_count);
-    let probe = Probe::open(gpu).expect("compile probe");
-    let acc_buf = probe.gpu.buffer(8).expect("alloc acc buf");
-    write_u64(&acc_buf, 0);
-    probe.run(&table, &acc_buf, seed, check_count);
-    let gpu_check = read_u64(&acc_buf);
-    assert_eq!(
-        cpu_check, gpu_check,
-        "GPU and CPU disagree on R-table contents — zero-copy broken"
+    let cpu_check = table.cpu_checksum(seed, check_count)?;
+    let mut probe = Probe::open(&gpu)?;
+    let gpu_check = probe.run(&mut table, seed, check_count)?;
+    if cpu_check != gpu_check {
+        return Err("GPU and CPU disagree on R-table contents".into());
+    }
+    println!(
+        "  correctness check: PASS ({check_count} reads, both = {:016x})",
+        cpu_check
     );
-    println!("  correctness check: PASS ({check_count} reads, both = {:016x})", cpu_check);
 
     // Bandwidth sweep
     println!();
@@ -139,25 +145,23 @@ fn cmd_bench(log2n: u32) {
         "probe count", "trials", "best ms", "GB/s"
     );
     let counts: &[u32] = &[
-        1_048_576,    // 1M  → 32 MB of reads
-        4_194_304,    // 4M  → 128 MB
-        16_777_216,   // 16M → 512 MB
-        67_108_864,   // 64M → 2 GiB
-        268_435_456,  // 256M → 8 GiB
+        1_048_576,   // 1M  → 32 MB of reads
+        4_194_304,   // 4M  → 128 MB
+        16_777_216,  // 16M → 512 MB
+        67_108_864,  // 64M → 2 GiB
+        268_435_456, // 256M → 8 GiB
     ];
     for &count in counts {
         // Warmup
         for _ in 0..2 {
-            write_u64(&acc_buf, 0);
-            probe.run(&table, &acc_buf, seed, count);
+            probe.run(&mut table, seed, count)?;
         }
         // 5 trials, take best (least system contention).
         let trials = 5;
         let mut best_ms = f64::INFINITY;
         for _ in 0..trials {
-            write_u64(&acc_buf, 0);
             let t0 = Instant::now();
-            probe.run(&table, &acc_buf, seed, count);
+            probe.run(&mut table, seed, count)?;
             let dt = t0.elapsed().as_secs_f64();
             let ms = dt * 1000.0;
             if ms < best_ms {
@@ -174,23 +178,32 @@ fn cmd_bench(log2n: u32) {
             count, trials, best_ms, gbps
         );
     }
+    Ok(())
 }
 
-fn main() {
+fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()) {
-        Some("verify") => cmd_verify(parse_log2n(&args, 2, 22)),
-        Some("bench") => cmd_bench(parse_log2n(&args, 2, 26)),
+        Some("verify") => cmd_verify(parse_log2n(&args, 2, 22)?)?,
+        Some("bench") => cmd_bench(parse_log2n(&args, 2, 26)?)?,
         None => {
             // Default: quick verify at small size, then bench at 2 GiB.
-            cmd_verify(22);
+            cmd_verify(22)?;
             println!();
-            cmd_bench(26);
+            cmd_bench(26)?;
         }
         Some(other) => {
             eprintln!("unknown subcommand: {other}");
             eprintln!("usage: rtable-bench [verify [log2N] | bench [log2N]]");
-            std::process::exit(1);
+            return Err("invalid subcommand".into());
         }
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("rtable-bench: {error}");
+        std::process::exit(1);
     }
 }
