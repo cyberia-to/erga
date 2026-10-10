@@ -1,20 +1,17 @@
-//! GPU Blake2b-256 throughput benchmark via honeycrisp/aruminium.
+//! Synchronous Blake2b-256 benchmark batches for macOS Apple Silicon.
 //!
-//! Buffers are backed by `unimem::Block` (IOSurface-pinned pages) and
-//! wrapped as Metal `MTLBuffer` via `aruminium::Gpu::wrap()`. The same
-//! physical pages are addressable by:
-//!   - CPU via `block.as_bytes()` / `as_bytes_mut()` (no syscalls, no copies)
-//!   - GPU via the wrapped MTLBuffer (Metal's zero-copy access)
-//!   - AMX/NEON via raw pointer (`block.address()`)
-//!   - ANE via `block.handle()` (IOSurfaceRef)
-//!
-//! Phase 1 only exercises the CPU+GPU axes, but the same allocation
-//! becomes the R-table in Phase 2 — at which point AMX builds it on
-//! the CPU side while GPU mines, with zero copies between the two.
+//! CPU and GPU access must address the same physical pages. The closed owner
+//! initializes and retains both backings, lends logical CPU records and excludes
+//! conflicting access through successful synchronous GPU completion.
 
-use aruminium::{Buffer, Dispatch, Gpu, GpuError, Pipeline, Queue};
-use unimem::{Block, MemError};
+mod batch;
+mod import_memory;
 
+use aruminium::{Gpu, GpuError, Pipeline, Queue};
+use std::{error::Error, fmt};
+use unimem::MemError;
+
+pub use batch::Batch;
 pub mod reference;
 
 const SHADER_V1: &str = include_str!("../shaders/blake2b_v1.metal");
@@ -63,96 +60,77 @@ impl Variant {
     }
 }
 
-/// Errors specific to blake-bench setup.
+/// Batch allocation failed before an owner was published.
 #[derive(Debug)]
 pub enum BenchError {
     Gpu(GpuError),
     Mem(MemError),
 }
 
+impl fmt::Display for BenchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Gpu(error) => error.fmt(f),
+            Self::Mem(error) => error.fmt(f),
+        }
+    }
+}
+impl Error for BenchError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(match self {
+            Self::Gpu(error) => error,
+            Self::Mem(error) => error,
+        })
+    }
+}
 impl From<GpuError> for BenchError {
-    fn from(e: GpuError) -> Self {
-        BenchError::Gpu(e)
+    fn from(error: GpuError) -> Self {
+        Self::Gpu(error)
     }
 }
 impl From<MemError> for BenchError {
-    fn from(e: MemError) -> Self {
-        BenchError::Mem(e)
-    }
-}
-
-/// IOSurface-backed pinned buffer accessible from CPU directly AND from
-/// GPU as an MTLBuffer wrapping the same physical pages. No copies on
-/// either side.
-///
-/// Field order matters: `buffer` is declared first so it drops first,
-/// releasing the MTLBuffer reference before the underlying IOSurface
-/// `Block` is unmapped.
-pub struct ZeroCopyBuf {
-    pub buffer: Buffer,
-    pub block: Block,
-}
-
-impl ZeroCopyBuf {
-    pub fn open(gpu: &Gpu, size: usize) -> Result<Self, BenchError> {
-        let block = Block::open(size)?;
-        let buffer = gpu.wrap(&block)?;
-        Ok(Self { block, buffer })
-    }
-
-    /// Direct mutable CPU access to the pinned memory. No syscalls,
-    /// no Metal map/unmap, no copies.
-    #[inline]
-    pub fn as_bytes_mut(&self) -> &mut [u8] {
-        self.block.as_bytes_mut()
-    }
-
-    /// Direct immutable CPU access. After a GPU dispatch+wait, this
-    /// returns the GPU's writes — same pages, no readback copy.
-    #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
-        self.block.as_bytes()
-    }
-
-    /// Underlying IOSurface global ID — usable for cross-process or
-    /// ANE/AMX sharing of the same allocation.
-    #[inline]
-    pub fn iosurface_id(&self) -> u32 {
-        self.block.id()
+    fn from(error: MemError) -> Self {
+        Self::Mem(error)
     }
 }
 
 pub struct GpuBlake2b {
-    pub gpu: Gpu,
-    _queue: Queue,
-    dispatch: Dispatch,
+    gpu: Gpu,
+    queue: Queue,
     pipeline: Pipeline,
-    pub variant: Variant,
-    pub max_threads_per_group: usize,
-    pub thread_execution_width: usize,
+    variant: Variant,
+}
+
+fn grid(count: u32, variant: Variant) -> usize {
+    let hpt = variant.hashes_per_thread();
+    (count / hpt + u32::from(!count.is_multiple_of(hpt))) as usize
+}
+
+fn check_width(
+    width: usize,
+    pipeline: usize,
+    device: (usize, usize, usize),
+) -> Result<(), GpuError> {
+    if width == 0 || width > pipeline || width > device.0 || device.1 == 0 || device.2 == 0 {
+        return Err(GpuError::CommandBufferError(
+            "threadgroup width exceeds pipeline/device limits or is zero".into(),
+        ));
+    }
+    Ok(())
 }
 
 impl GpuBlake2b {
     pub fn open(variant: Variant) -> Result<Self, GpuError> {
         let gpu = Gpu::open()?;
         let queue = gpu.new_command_queue()?;
-        let dispatch = Dispatch::new(&queue);
-
         let lib = gpu.compile(variant.shader_src())?;
         let func = lib.function(variant.function_name())?;
         let pipeline = gpu.pipeline(&func)?;
-
-        let max_threads_per_group = pipeline.max_total_threads_per_threadgroup();
-        let thread_execution_width = pipeline.thread_execution_width();
-
         Ok(Self {
             gpu,
-            _queue: queue,
-            dispatch,
+            queue,
             pipeline,
             variant,
-            max_threads_per_group,
-            thread_execution_width,
         })
     }
 
@@ -160,86 +138,81 @@ impl GpuBlake2b {
         Self::open(Variant::V1Baseline)
     }
 
-    /// Dispatch + wait against IOSurface-backed buffers. CPU writes to
-    /// `input` are visible to the GPU and GPU writes to `output` are
-    /// visible back on the CPU when this returns — no copies either way.
-    pub fn dispatch(
-        &self,
-        input: &ZeroCopyBuf,
-        output: &ZeroCopyBuf,
-        count: u32,
-        threadgroup_width: usize,
-    ) {
-        let count_bytes = count.to_le_bytes();
-        let hpt = self.variant.hashes_per_thread() as usize;
-        let threads = (count as usize).div_ceil(hpt);
-        let grid = threads.div_ceil(threadgroup_width) * threadgroup_width;
-        unsafe {
-            self.dispatch.dispatch_with_bytes(
-                &self.pipeline,
-                &[(&input.buffer, 0, 0), (&output.buffer, 0, 1)],
-                &count_bytes,
-                2,
-                (grid, 1, 1),
-                (threadgroup_width, 1, 1),
-            );
-        }
+    pub fn variant(&self) -> Variant {
+        self.variant
     }
 
-    /// Allocate two IOSurface-backed buffers sized for `count` 32-byte
-    /// hashes.
-    pub fn alloc_buffers(&self, count: u32) -> Result<(ZeroCopyBuf, ZeroCopyBuf), BenchError> {
-        let bytes = (count as usize) * 32;
-        let in_buf = ZeroCopyBuf::open(&self.gpu, bytes)?;
-        let out_buf = ZeroCopyBuf::open(&self.gpu, bytes)?;
-        Ok((in_buf, out_buf))
+    pub fn max_threads_per_group(&self) -> usize {
+        self.pipeline.max_total_threads_per_threadgroup()
+    }
+
+    pub fn thread_execution_width(&self) -> usize {
+        self.pipeline.thread_execution_width()
+    }
+
+    /// Allocate and initialize two native backings for a fixed nonzero count.
+    pub fn alloc_batch(&self, count: u32) -> Result<Batch<'_>, BenchError> {
+        Batch::allocate(&self.gpu, count)
+    }
+
+    /// Dispatch and wait for successful completion before CPU readback.
+    /// Pre-submit errors preserve usable input; failed completion closes the batch.
+    pub fn dispatch(&self, batch: &mut Batch<'_>, width: usize) -> Result<(), GpuError> {
+        batch.validate(&self.gpu)?;
+        let maximum = self.gpu.max_threads_per_threadgroup();
+        check_width(
+            width,
+            self.max_threads_per_group(),
+            (maximum.width, maximum.height, maximum.depth),
+        )?;
+        // Both private imports and their backing Blocks outlive the exclusive
+        // batch borrow. Locals drop encoder then command, after wait, before that
+        // borrow ends. No CPU/native alias is exported or can submit other work.
+        let command = self.queue.commands()?;
+        let encoder = command.encoder()?;
+        encoder.bind(&self.pipeline);
+        batch.bind(&encoder);
+        // Exact nonuniform grid: dual-hash gid*2+1 fits uint even at count=u32MAX.
+        // Apple M-series supports nonuniform groups; no padded surplus lanes.
+        encoder.launch((grid(batch.count(), self.variant), 1, 1), (width, 1, 1));
+        encoder.finish();
+        batch.failed = true;
+        command.submit();
+        command.wait();
+        batch.completed(command.status(), command.error())
     }
 }
 
-/// Fill input buffer with deterministic pseudo-random 32-byte messages.
-/// Writes directly into the IOSurface-pinned pages — no Metal map/unmap.
-pub fn fill_inputs(buf: &ZeroCopyBuf, count: u32, seed: u64) {
-    let bytes = buf.as_bytes_mut();
+/// Fill logical input records with deterministic pseudo-random messages.
+pub fn fill_inputs(batch: &mut Batch<'_>, seed: u64) -> Result<(), GpuError> {
     let mut s = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    for i in 0..(count as usize) {
-        let off = i * 32;
-        for k in 0..4 {
+    for record in batch.inputs_mut()? {
+        for word in record.chunks_exact_mut(8) {
             s ^= s << 13;
             s ^= s >> 7;
             s ^= s << 17;
-            bytes[off + k * 8..off + (k + 1) * 8].copy_from_slice(&s.to_le_bytes());
+            word.copy_from_slice(&s.to_le_bytes());
         }
     }
+    Ok(())
 }
 
-/// Verify GPU output against CPU reference with no heap allocation.
-/// Reads inputs and outputs directly from IOSurface-pinned pages; the
-/// CPU reference hash is produced into a stack-allocated [u8; 32]
-/// (Blake2b state is internal to the `blake2` crate; this function
-/// adds no heap memory of its own).
-pub fn verify_zero_copy(
-    in_buf: &ZeroCopyBuf,
-    out_buf: &ZeroCopyBuf,
-    count: u32,
-) -> usize {
-    let inputs = in_buf.as_bytes();
-    let outputs = out_buf.as_bytes();
-    let mut mismatches = 0usize;
-    for i in 0..(count as usize) {
-        let off = i * 32;
-        let cpu: [u8; 32] = reference::blake2b256(&inputs[off..off + 32]);
-        let gpu = &outputs[off..off + 32];
-        if cpu != *gpu {
+/// Count byte-exact mismatches against the CPU reference using logical records.
+/// Call after successful dispatch to verify hashes for the current inputs.
+pub fn verify_zero_copy(batch: &Batch<'_>) -> Result<usize, GpuError> {
+    let mut mismatches = 0;
+    for (i, (input, output)) in batch.inputs()?.iter().zip(batch.outputs()?).enumerate() {
+        let cpu = reference::blake2b256(input);
+        if cpu != *output {
             mismatches += 1;
             if mismatches <= 3 {
                 eprintln!(
-                    "  mismatch at i={}: gpu[..8]={:02x?} cpu[..8]={:02x?}",
-                    i,
-                    &gpu[..8],
+                    "  mismatch at i={i}: gpu[..8]={:02x?} cpu[..8]={:02x?}",
+                    &output[..8],
                     &cpu[..8]
                 );
             }
         }
     }
-    mismatches
+    Ok(mismatches)
 }

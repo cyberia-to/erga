@@ -1,0 +1,59 @@
+{
+  "recorded_at": "2026-10-10T00:28:27.245847+00:00",
+  "sources": [
+    {
+      "url": "https://developer.apple.com/documentation/metal/synchronizing-cpu-and-gpu-work.md",
+      "path": "/tmp/kadek-unimem-block-access-primary/metal-cpu-gpu-sync.md",
+      "command": "curl",
+      "args": [
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+        "--output",
+        "/tmp/kadek-unimem-block-access-primary/metal-cpu-gpu-sync.md",
+        "https://developer.apple.com/documentation/metal/synchronizing-cpu-and-gpu-work.md"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit_code": 0,
+      "sha256": "b53e13f7aba664b3f98a060641f67fe935d08451dc92b7595ffc44b64edc44c5"
+    },
+    {
+      "url": "https://developer.apple.com/documentation/metal/performing-calculations-on-a-gpu.md",
+      "path": "/tmp/kadek-unimem-block-access-primary/metal-compute.md",
+      "command": "curl",
+      "args": [
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+        "--output",
+        "/tmp/kadek-unimem-block-access-primary/metal-compute.md",
+        "https://developer.apple.com/documentation/metal/performing-calculations-on-a-gpu.md"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit_code": 0,
+      "sha256": "5ddae62e9092e76b870e2068fcba5393004d295b754fd23ea542f9b061a0bf02"
+    },
+    {
+      "url": "https://developer.apple.com/documentation/metal/mtlcommandbuffer/waituntilcompleted%28%29.md",
+      "path": "/tmp/kadek-unimem-block-access-primary/metal-wait.md",
+      "command": "curl",
+      "args": [
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+        "--output",
+        "/tmp/kadek-unimem-block-access-primary/metal-wait.md",
+        "https://developer.apple.com/documentation/metal/mtlcommandbuffer/waituntilcompleted%28%29.md"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit_code": 0,
+      "sha256": "cd7b4d3ea040143755c09fa0d87c665460fe5a583e657c18b880b48e3f039b21"
+    }
+  ]
+}

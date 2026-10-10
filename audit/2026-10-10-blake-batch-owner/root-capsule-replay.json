@@ -1,0 +1,12 @@
+{
+  "payloads": 140,
+  "records": 21,
+  "raw_streams": 42,
+  "frozen_paths": 8,
+  "zero": 12,
+  "nonzero": 9,
+  "command_dictionary_lossless": true,
+  "all_payload_hashes_match": true,
+  "reran_native_work": false,
+  "archive_sha256": "169ebb6357b95fd8c4252b6ff108a6d5224135bb50071a61ccaf08b3427bdb55"
+}

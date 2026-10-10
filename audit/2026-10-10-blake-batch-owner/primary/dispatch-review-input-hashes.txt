@@ -1,0 +1,8 @@
+3bb81fa7957bd895524443ca22435e766c57d0ebe87818ca59e245d90ee5465f  /tmp/xena-gpu-metal-dispatch-primary/README.md
+c989c74a8855ed7fff463b4eb8eaea67b7d7cd54e0b78cb0d13f48811673d7ff  /tmp/xena-gpu-metal-dispatch-primary/acquisition.json
+01ddff3492838c156322f0c68a020c1c56c48fb89fdb00573766682ca80a0247  /tmp/xena-gpu-metal-dispatch-primary/dispatch-threads.md
+d39d44930640cc1d093d92066d109eba53aa138daacc2ab3e2efd6f4c59177e3  /tmp/xena-gpu-metal-dispatch-primary/grid-sizes.md
+40f2af3209c3c399021b9aa72fd3b1a4609de495205d568c0a147e80e85405b5  /tmp/xena-gpu-metal-dispatch-primary/max-group.md
+30a5b9e55359e95a5c4c831a89d73ac39535f21fb81a54995d81038cf6b6fd7d  /tmp/xena-gpu-metal-dispatch-primary/feature-tables-pages2-10.txt
+3a4c60663433d3d808c12581764ea3bfe222e7a383f584f5ae58b95d865202ba  /tmp/xena-gpu-metal-dispatch-primary/msl-pages25-26.txt
+f9eb47769eac722daa7ea5a9349ce7c107d9774181f2c287aafea0c38d7855ce  /tmp/xena-gpu-metal-dispatch-primary/msl-pages153-158.txt

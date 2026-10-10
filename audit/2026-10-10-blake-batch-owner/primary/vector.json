@@ -1,0 +1,11 @@
+{
+  "repository": "BoringSSL",
+  "revision": "09f7078f953362d5c5afdd224118845327b60fb4",
+  "git_blob": "8e52cf474275073793a704a2e1509ad131e1847b",
+  "url": "https://boringssl.googlesource.com/boringssl/+/09f7078f953362d5c5afdd224118845327b60fb4/src/crypto/blake2/blake2b256_tests.txt",
+  "download_command": "curl -fsSL '<url>?format=TEXT' -o blake2b256_tests.base64; base64 -D -i blake2b256_tests.base64 -o blake2b256_tests.txt",
+  "file_sha256": "de04a0c8d63df6a46ed7c6c47eaa961bc3ce33daa4b58cf80b3d76f4d931e00b",
+  "input_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "expected_hex": "cb2f5160fc1f7e05a55ef49d340b48da2e5a78099d53393351cd579dd42503d6",
+  "origin_description": "Published BoringSSL vectors generated with Go golang.org/x/crypto/blake2b.New256(nil), independent of Kadek/Erga/RustCrypto and GPU output."
+}

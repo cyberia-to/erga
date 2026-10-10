@@ -1,0 +1,53 @@
+# PLAN Review — Blake benchmark batch owner (`erga/.claude/tasks/blake-batch-owner/plan.md` v1)
+
+## Verdict
+
+**APPROVE**
+
+The plan is scoped to one real, source-verified defect boundary (`blake-bench`'s public `ZeroCopyBuf` and its status-blind dispatcher), has exactly one consumer in the supplied inventory, and the supporting evidence is internally consistent with the committed source bodies I was given. I found no blocking defect. Several notes below are worth folding into implementation, but none of them require a plan revision before you authorize work.
+
+## What I independently checked against the supplied sources
+
+**The compile baseline is accurately described, not rounded off.** `check-blake-origin-with-diagnostic-lock.stderr` shows exactly four diagnostics: E0133 at lib.rs:99 (`Gpu::wrap`), E0133 at :107 (`as_bytes_mut`), E0596 at :107 (shared `&self` receiver), E0133 at :114 (`as_bytes`). That is three E0133 plus one E0596 — matching the research text and contradicting the "four E0133" phrasing that the brief flags as the error to avoid. Good.
+
+**The lock delta claim is checkable and correct.** The committed `Cargo.lock` at 848e17e lists `unimem 0.2.0` with dependencies `crossbeam-queue`, `libc`, `mutants`. Honeycrisp's `unimem/Cargo.toml` at 9cbd4807 declares only `crossbeam-queue.workspace` and `mutants.workspace` under `[dependencies]`; `libc.workspace` sits under `[dev-dependencies]`. So `libc` is genuinely an obsolete edge in the lock's normal-dependency list, and deleting that one line is the minimal honest normalization. `inventory.rb` enforces this with an exact-string substitution and raises otherwise — that is real verification, not an assertion.
+
+**Caller scope holds.** `caller-inventory.json` covers all 35 `.rs` files with explicit zero-match rows, and the only `ZeroCopyBuf`/`fill_inputs`/`verify_zero_copy`/`GpuBlake2b` consumers are `blake-bench/src/lib.rs` and `blake-bench/src/main.rs`. `rs/miner/src/difftest.rs:19` uses `blake_bench::reference::blake2b256` only; `autolykos`, `erga-pool`, `rtable-bench`, `mine-bench` likewise depend on `reference`. The claim that a closed Blake batch is independently deliverable is supported.
+
+**Shader arithmetic claim is correct as stated.** V1/V2 guard `gid >= count` before any load and offset by `(ulong)gid*32`. V3/V4 compute `uint idxA = gid*2u; uint idxB = idxA+1u;` *before* `if (idxA >= count) return;`, then use `(ulong)idx*32`. With grid `ceil(count/hpt)` and no group rounding, the maximum `gid` for dual-hash is `ceil(2^32-1 / 2) - 1 = 2^31 - 1`, so `idxA = 2^32 - 2` and `idxB = 2^32 - 1` — both fit `uint` without wrap. The plan's refusal to round the grid up to a group multiple is load-bearing here, and it says so. The `has_b` guard already suppresses the odd-partner store. Preserving the shaders unchanged is the right call.
+
+**The `Encoder::push` route is sound.** `encoder.rs` `push` forwards to `setBytes:length:atIndex:`, and the acquired Apple page confirms the data is copied and valid for ≤4 KB non-persistent payloads. A 4-byte count needs no buffer and no new provider API. Correct, and it avoids widening Honeycrisp.
+
+**`!Send`/`!Sync` inheritance is real, not asserted.** `aruminium::Buffer` carries no `unsafe impl Send/Sync` (unlike `unimem::Block`, which does). A `Batch` holding a `Buffer` is therefore auto-`!Send`/`!Sync`. Pinning this with nightly E0277 witnesses rather than an `unsafe impl` is the honest version.
+
+**The status-blindness finding is accurate.** `Dispatch::dispatch_with_bytes` commits and waits but returns `()` and inspects neither `status()` nor `error()`. `Commands` exposes both plus `STATUS_COMPLETED`. Replacing the helper with `Queue`/`Commands`/`Encoder` is the only way to establish successful readback with existing provider APIs — no provider change needed. Confirmed.
+
+**Honesty posture is right.** The plan explicitly keeps buildbench and packaging unrun, expects workspace red (RTable/mine E0133s, chime overflow), records the historical chime panic as masked-not-fixed, labels the simulated completion matrix separately, and refuses any performance claim despite changing initialization cost. The `reference.rs` `known_vector_abc` test is correctly identified as a false witness (it computes, discards, asserts nothing) and correctly left alone.
+
+## Blockers
+
+None.
+
+## Optional notes for the implementer
+
+1. **Drop-order comment vs. compiler guarantee.** The plan requires `Storage` to declare `Buffer` first and `Block` second, which is correct for Rust's declaration-order field drop. But field-order comments are exactly what the research criticizes in today's `ZeroCopyBuf` (which, note, declares `buffer` first in the struct yet constructs `Self { block, buffer }` — order of struct-literal fields is irrelevant to drop, so the existing code is accidentally correct). Since no compiler check enforces this, consider a short unit test that observes relative drop order via a side channel, or at minimum a comment that names the Rust reference rule rather than the intent. A review-only claim is acceptable; just don't call it proven.
+
+2. **`verify_zero_copy` return type.** The signature keeps `Result<usize, GpuError>` returning a mismatch count. Note that `0` means "all matched" only if a successful dispatch established the relation; before first dispatch, outputs are zeroes and every row will mismatch. The plan already says outputs-before-dispatch are zero bytes and not a promised hash — make sure the CLI's PASS/FAIL text can't be read as "verified" in a pre-dispatch state.
+
+3. **Device-identity comparison is review-only on a single-GPU host.** The plan acknowledges this honestly. Worth recording in the audit as `simulated`/`open` on the evidence axis rather than `measured`, since the mismatch branch will be unexercised.
+
+4. **`BenchError`/`GpuError` split.** `GpuError` is `#[non_exhaustive]` upstream; adding `Display`/`source` to `BenchError` and threading `GpuError` out of post-construction methods is fine, but check that `CommandBufferError(String)` is an adequate carrier for status + native detail, since there is no structured variant. A formatted string is acceptable; just make the status value itself appear verbatim in it so a receipt can be read back.
+
+5. **`isize` bound.** `count*32` with `count: u32` maxes at ~137 GB, far under `isize::MAX` on arm64, so the slice-limit check will never fire on this target. Keep it (it is correct and cheap), but don't present it as a discovered hazard.
+
+6. **File-size budget.** `lib.rs` today is ~250 lines and `main.rs` ~270. Splitting `batch.rs` + `import_memory.rs` out is the right shape to stay under 500 per file; the `import_memory.rs` fixture-derived helper with FFI, page query, and VM-leaf containment is the one most likely to crowd its budget. Plan for a submodule if it does.
+
+7. **Doctrine placement.** `specs/README.md` §5 is currently a resource table ("memory / GPU / CPU / network"). A prose ownership paragraph is a slightly odd fit there; §2's invariant table or a new short §2 sub-entry may read better. Either is within doctrine (`specs/` holds contracts), and observed results stay in `audit/` — just a readability note.
+
+8. **`decision` label.** This change touches `specs/README.md` and removes public API, so per `cyberia/dev.md` § merge policy it carries `decision` and waits for the owner — it cannot auto-merge on green gates. The plan already routes commit/PR through root; worth naming the label explicitly in the PR body.
+
+## Scope discipline
+
+The plan does not drift into Erga mining closure, native `Image` ownership, Kadek row 6, RTable/mine-bench repair, chime, provider changes, manifests, versions, or pinning policy. The RTable/mine findings are inventoried with file:line as a *next* unit, not smuggled in. The `ring/kelvin` closure is reported unavailable (no Erga row in `components.toml` at 18fd6b22) rather than fabricated. That is the correct handling.
+
+Authorize implementation.
