@@ -1,0 +1,26 @@
+{
+  "identity_basis": "Fresh independent sessions dispatched by root; vendor/model alias and session identifiers reported by root. No additional model-version identifier inferred.",
+  "reviewer": {
+    "vendor": "Anthropic",
+    "model_alias": "Claude Opus"
+  },
+  "plan": {
+    "session": "90545",
+    "verdict": "APPROVE",
+    "file": "plan.txt",
+    "sha256": "4bfc5d44bb81f7a30e8a9015530d234d8a80bb2dbc217e1fc05fc0b9ed24f59a",
+    "input_brief_sha256": "b0ab640cb3e80f337df8be5a88a8550a46d697d58bccc319922acee9df49a037"
+  },
+  "code": {
+    "session": "65021",
+    "verdict": "APPROVE",
+    "blockers": 0,
+    "file": "code.txt",
+    "sha256": "62be538f72a2b563380b51b02b02e9aad5de08ab57836fccda68f43b8112f898",
+    "input_brief_sha256": "56fffe6e61581f09f9b534ffb957cd6afa4d560a364d57c38b205eb5880495ef",
+    "source_freeze_sha256": "297e4959c0f4257c7b985ee9aeaa0194677e367a6e0e7ec0748bd187298d2d98",
+    "optional_cosmetics": "Deferred; frozen source unchanged"
+  },
+  "pack_metadata_note": "code-pack.json and root pack verification are immutable pre-dispatch snapshots; reviewer_invoked:false describes pack preparation, not the later completed review.",
+  "acceptance": "Root agent owns final acceptance, decision label, commit, PR and merge."
+}

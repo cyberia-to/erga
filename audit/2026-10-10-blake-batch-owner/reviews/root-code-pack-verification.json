@@ -1,0 +1,16 @@
+{
+  "checked": "2026-10-10T06:05:24Z",
+  "inputs": 158,
+  "sections": 158,
+  "git_bodies": 54,
+  "full_candidate_bodies": 7,
+  "compacted_json": 22,
+  "nonjson_exact": true,
+  "all_command_records_losslessly_reconstructed": 21,
+  "published_literal_exact": true,
+  "tracked_difference_exact": true,
+  "diff_check_exit": 0,
+  "brief_bytes": 880680,
+  "brief_sha256": "56fffe6e61581f09f9b534ffb957cd6afa4d560a364d57c38b205eb5880495ef",
+  "reviewer_invoked": false
+}

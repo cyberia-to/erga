@@ -1,0 +1,14 @@
+{
+  "created": "2026-10-10T06:03:14Z",
+  "source_freeze_sha256": "297e4959c0f4257c7b985ee9aeaa0194677e367a6e0e7ec0748bd187298d2d98",
+  "inputs": 158,
+  "committed_git_bodies": 54,
+  "candidate_full_bodies": 7,
+  "compacted_json": 22,
+  "brief_bytes": 880680,
+  "brief_sha256": "56fffe6e61581f09f9b534ffb957cd6afa4d560a364d57c38b205eb5880495ef",
+  "review_inputs_sha256": "fbb0806dc7bfdaf7a3107bf312c7ed5c3d45339d13b0ac97098819a9b4442ea8",
+  "builder_sha256": "37c6beb0a633751a3339af6c305f76419ff2026190e105d6dd33578be354f321",
+  "instructions_words": 603,
+  "reviewer_invoked": false
+}

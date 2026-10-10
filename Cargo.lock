@@ -3918,7 +3918,6 @@ name = "unimem"
 version = "0.2.0"
 dependencies = [
  "crossbeam-queue",
- "libc",
  "mutants",
 ]
 

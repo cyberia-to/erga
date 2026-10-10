@@ -1,0 +1,11 @@
+{
+  "checked": "2026-10-10T05:41:54Z",
+  "sections": 96,
+  "committed_review_bodies": 54,
+  "committed_archive_paths": 814,
+  "sole_lock_normalization": true,
+  "gate_records": 3,
+  "raw_streams": 6,
+  "brief_sha256": "b0ab640cb3e80f337df8be5a88a8550a46d697d58bccc319922acee9df49a037",
+  "byte_exact": true
+}

@@ -1,0 +1,19 @@
+{
+  "url": "https://developer.apple.com/documentation/metal/mtlcomputecommandencoder/setbytes%28_%3Alength%3Aindex%3A%29.md",
+  "args": [
+    "-fL",
+    "--retry",
+    "2",
+    "-o",
+    "/tmp/erga-blake-batch-plan-v1/primary/metal-setbytes.md",
+    "https://developer.apple.com/documentation/metal/mtlcomputecommandencoder/setbytes%28_%3Alength%3Aindex%3A%29.md"
+  ],
+  "start": "2026-10-10T05:31:25.625388+00:00",
+  "end": "2026-10-10T05:31:26.318721+00:00",
+  "result": {
+    "stdout": "",
+    "stderr": "  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r100  1636  100  1636    0     0   2383      0 --:--:-- --:--:-- --:--:--  2381\n",
+    "exit_code": 0
+  },
+  "sha256": "9a43885afaf18f52e7749607c025d6778938f2b53c3a94c4817ed83c9d4635fb"
+}

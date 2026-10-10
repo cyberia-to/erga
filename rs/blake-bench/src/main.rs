@@ -11,7 +11,7 @@
 
 use std::time::Instant;
 
-use blake_bench::{GpuBlake2b, Variant, fill_inputs, verify_zero_copy};
+use blake_bench::{fill_inputs, verify_zero_copy, BenchError, GpuBlake2b, Variant};
 
 const VARIANTS: &[Variant] = &[
     Variant::V1Baseline,
@@ -33,21 +33,21 @@ fn parse_variant(s: &str) -> Option<Variant> {
 fn print_pipeline_info(g: &GpuBlake2b) {
     println!(
         "  {:<8} thread_execution_width={}  max_threads_per_group={}",
-        format!("[{:?}]", g.variant),
-        g.thread_execution_width,
-        g.max_threads_per_group,
+        format!("[{:?}]", g.variant()),
+        g.thread_execution_width(),
+        g.max_threads_per_group(),
     );
 }
 
-fn bench_once(g: &GpuBlake2b, count: u32, tg_width: usize) -> Option<f64> {
-    if tg_width > g.max_threads_per_group {
-        return None;
+fn bench_once(g: &GpuBlake2b, count: u32, tg_width: usize) -> Result<Option<f64>, BenchError> {
+    if tg_width > g.max_threads_per_group() {
+        return Ok(None);
     }
-    let (in_buf, out_buf) = g.alloc_buffers(count).ok()?;
-    fill_inputs(&in_buf, count, 0xCAFE_BABE_DEAD_BEEF);
+    let mut batch = g.alloc_batch(count)?;
+    fill_inputs(&mut batch, 0xCAFE_BABE_DEAD_BEEF)?;
 
     // Warmup
-    g.dispatch(&in_buf, &out_buf, count, tg_width);
+    g.dispatch(&mut batch, tg_width)?;
 
     let iters = if count >= 4_000_000 {
         4
@@ -58,33 +58,33 @@ fn bench_once(g: &GpuBlake2b, count: u32, tg_width: usize) -> Option<f64> {
     };
     let t0 = Instant::now();
     for _ in 0..iters {
-        g.dispatch(&in_buf, &out_buf, count, tg_width);
+        g.dispatch(&mut batch, tg_width)?;
     }
     let dt = t0.elapsed().as_secs_f64();
     let total_hashes = (count as u64) * (iters as u64);
     let mhs = (total_hashes as f64) / dt / 1e6;
-    Some(mhs)
+    Ok(Some(mhs))
 }
 
-fn verify_variant(variant: Variant) -> bool {
-    let g = match GpuBlake2b::open(variant) {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("  open {:?} failed: {e:?}", variant);
-            return false;
-        }
-    };
+fn verify_variant(variant: Variant) -> Result<bool, BenchError> {
+    let g = GpuBlake2b::open(variant)?;
     let count: u32 = 4096;
-    let (in_buf, out_buf) = g.alloc_buffers(count).unwrap();
-    fill_inputs(&in_buf, count, 1234);
-    g.dispatch(&in_buf, &out_buf, count, 64);
-    let mismatches = verify_zero_copy(&in_buf, &out_buf, count);
+    let mut batch = g.alloc_batch(count)?;
+    fill_inputs(&mut batch, 1234)?;
+    g.dispatch(&mut batch, 64)?;
+    let mismatches = verify_zero_copy(&batch)?;
     if mismatches == 0 {
-        println!("  {:<24} PASS  ({count} hashes match CPU reference)", variant.label());
-        true
+        println!(
+            "  {:<24} PASS  ({count} hashes match CPU reference)",
+            variant.label()
+        );
+        Ok(true)
     } else {
-        println!("  {:<24} FAIL  {mismatches}/{count} mismatches", variant.label());
-        false
+        println!(
+            "  {:<24} FAIL  {mismatches}/{count} mismatches",
+            variant.label()
+        );
+        Ok(false)
     }
 }
 
@@ -92,18 +92,32 @@ fn cmd_verify_all() -> bool {
     println!("Verifying GPU kernels against CPU reference:");
     let mut all_ok = true;
     for &v in VARIANTS {
-        all_ok &= verify_variant(v);
+        match verify_variant(v) {
+            Ok(verified) => all_ok &= verified,
+            Err(error) => {
+                eprintln!("  {:?} verification unavailable: {error}", v);
+                all_ok = false;
+            }
+        }
     }
     all_ok
 }
 
-fn bench_stable(g: &GpuBlake2b, count: u32, tg_width: usize, trials: usize) -> Option<f64> {
-    let (in_buf, out_buf) = g.alloc_buffers(count).ok()?;
-    fill_inputs(&in_buf, count, 0xCAFE_BABE_DEAD_BEEF);
+fn bench_stable(
+    g: &GpuBlake2b,
+    count: u32,
+    tg_width: usize,
+    trials: usize,
+) -> Result<Option<f64>, BenchError> {
+    if tg_width > g.max_threads_per_group() {
+        return Ok(None);
+    }
+    let mut batch = g.alloc_batch(count)?;
+    fill_inputs(&mut batch, 0xCAFE_BABE_DEAD_BEEF)?;
 
     // 3 warmup dispatches
     for _ in 0..3 {
-        g.dispatch(&in_buf, &out_buf, count, tg_width);
+        g.dispatch(&mut batch, tg_width)?;
     }
 
     let mut best = 0.0f64;
@@ -111,7 +125,7 @@ fn bench_stable(g: &GpuBlake2b, count: u32, tg_width: usize, trials: usize) -> O
         let iters = 8;
         let t0 = Instant::now();
         for _ in 0..iters {
-            g.dispatch(&in_buf, &out_buf, count, tg_width);
+            g.dispatch(&mut batch, tg_width)?;
         }
         let dt = t0.elapsed().as_secs_f64();
         let total = (count as u64) * (iters as u64);
@@ -120,18 +134,16 @@ fn bench_stable(g: &GpuBlake2b, count: u32, tg_width: usize, trials: usize) -> O
             best = mhs;
         }
     }
-    Some(best)
+    Ok(Some(best))
 }
 
-fn cmd_stable() {
+fn cmd_stable() -> Result<(), BenchError> {
     // Use the largest reasonable batch and a known-good threadgroup width.
     let count: u32 = 16_777_216;
     let widths: &[usize] = &[32, 64, 128, 256];
     let trials = 8;
     println!();
-    println!(
-        "Stable measurement: count={count}, best of {trials} trials per (variant, tg_width)"
-    );
+    println!("Stable measurement: count={count}, best of {trials} trials per (variant, tg_width)");
     println!();
     print!("{:<32}", "variant");
     for &w in widths {
@@ -139,14 +151,11 @@ fn cmd_stable() {
     }
     println!("{:>10}", "peak");
     for &variant in VARIANTS {
-        let g = match GpuBlake2b::open(variant) {
-            Ok(g) => g,
-            Err(_) => continue,
-        };
+        let g = GpuBlake2b::open(variant)?;
         print!("{:<32}", variant.label());
         let mut peak = 0.0f64;
         for &w in widths {
-            match bench_stable(&g, count, w, trials) {
+            match bench_stable(&g, count, w, trials)? {
                 Some(mhs) => {
                     print!("{:>10.1}", mhs);
                     if mhs > peak {
@@ -159,9 +168,10 @@ fn cmd_stable() {
         println!("{:>10.1}", peak);
     }
     println!();
+    Ok(())
 }
 
-fn cmd_bench_all() {
+fn cmd_bench_all() -> Result<(), BenchError> {
     println!();
     println!("Throughput sweep (MH/s, higher is better):");
     println!("  rows = batch size  cols = threadgroup width");
@@ -171,13 +181,7 @@ fn cmd_bench_all() {
     let widths: &[usize] = &[32, 64, 128, 256, 512, 1024];
 
     for &variant in VARIANTS {
-        let g = match GpuBlake2b::open(variant) {
-            Ok(g) => g,
-            Err(e) => {
-                println!("--- {} --- open failed: {e:?}", variant.label());
-                continue;
-            }
-        };
+        let g = GpuBlake2b::open(variant)?;
         println!("--- {} ---", variant.label());
         print_pipeline_info(&g);
         print!("{:>12}", "count\\tg_w");
@@ -188,7 +192,7 @@ fn cmd_bench_all() {
         for &count in batches {
             print!("{:>12}", count);
             for &w in widths {
-                match bench_once(&g, count, w) {
+                match bench_once(&g, count, w)? {
                     Some(mhs) => print!("{:>10.1}", mhs),
                     None => print!("{:>10}", "-"),
                 }
@@ -201,12 +205,13 @@ fn cmd_bench_all() {
     // Summary: peak achieved per variant
     println!("Peak per variant:");
     for &variant in VARIANTS {
-        if let Ok(g) = GpuBlake2b::open(variant) {
+        let g = GpuBlake2b::open(variant)?;
+        {
             let mut best = 0.0f64;
             let mut best_at = (0u32, 0usize);
             for &count in batches {
                 for &w in widths {
-                    if let Some(mhs) = bench_once(&g, count, w) {
+                    if let Some(mhs) = bench_once(&g, count, w)? {
                         if mhs > best {
                             best = mhs;
                             best_at = (count, w);
@@ -223,9 +228,10 @@ fn cmd_bench_all() {
             );
         }
     }
+    Ok(())
 }
 
-fn main() {
+fn run() -> Result<(), BenchError> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()) {
         Some("verify") => {
@@ -234,12 +240,18 @@ fn main() {
             }
         }
         Some("bench-once") => {
-            let variant = args.get(2).and_then(|s| parse_variant(s)).unwrap_or(Variant::V2Unrolled);
-            let count: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+            let variant = args
+                .get(2)
+                .and_then(|s| parse_variant(s))
+                .unwrap_or(Variant::V2Unrolled);
+            let count: u32 = args
+                .get(3)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1_048_576);
             let w: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(64);
-            let g = GpuBlake2b::open(variant).expect("open");
+            let g = GpuBlake2b::open(variant)?;
             print_pipeline_info(&g);
-            match bench_once(&g, count, w) {
+            match bench_once(&g, count, w)? {
                 Some(mhs) => println!("{:?} count={count} tg={w} -> {mhs:.2} MH/s", variant),
                 None => println!("unsupported tg width"),
             }
@@ -249,19 +261,27 @@ fn main() {
                 eprintln!("verification failed — not running benchmark");
                 std::process::exit(1);
             }
-            cmd_bench_all();
+            cmd_bench_all()?;
         }
         Some("stable") => {
             if !cmd_verify_all() {
                 eprintln!("verification failed — not running benchmark");
                 std::process::exit(1);
             }
-            cmd_stable();
+            cmd_stable()?;
         }
         Some(other) => {
             eprintln!("unknown subcommand: {other}");
             eprintln!("usage: blake-bench [verify|bench|bench-once {{v1|v2}} N W]");
             std::process::exit(1);
         }
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("blake-bench failed: {error}");
+        std::process::exit(1);
     }
 }

@@ -1,0 +1,25 @@
+{
+  "command": [
+    "nu",
+    "/Users/master/cyber/erga-unimem-bench-owners/audit/2026-10-10-blake-batch-owner/verify.nu",
+    "/Users/master/cyber/erga-unimem-bench-owners/audit/2026-10-10-blake-batch-owner"
+  ],
+  "cwd": "/Users/master/cyber/erga-unimem-bench-owners",
+  "start": "2026-10-10T06:17:32.971833+00:00",
+  "end": "2026-10-10T06:17:33.158944+00:00",
+  "exit_code": 0,
+  "stdout": "{\n  \"payloads\": 140,\n  \"records\": 21,\n  \"raw_streams\": 42,\n  \"frozen_paths\": 8,\n  \"zero\": 12,\n  \"nonzero\": 9,\n  \"command_dictionary_lossless\": true,\n  \"all_payload_hashes_match\": true,\n  \"reran_native_work\": false,\n  \"archive_sha256\": \"169ebb6357b95fd8c4252b6ff108a6d5224135bb50071a61ccaf08b3427bdb55\"\n}\n",
+  "stderr": "",
+  "replay": {
+    "payloads": 140,
+    "records": 21,
+    "raw_streams": 42,
+    "frozen_paths": 8,
+    "zero": 12,
+    "nonzero": 9,
+    "command_dictionary_lossless": true,
+    "all_payload_hashes_match": true,
+    "reran_native_work": false,
+    "archive_sha256": "169ebb6357b95fd8c4252b6ff108a6d5224135bb50071a61ccaf08b3427bdb55"
+  }
+}

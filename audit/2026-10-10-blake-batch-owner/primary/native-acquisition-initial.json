@@ -1,0 +1,100 @@
+{
+  "date": "2026-10-10T00:10:48Z",
+  "scope": "Read-only primary source acquisition; no native probe, source edit, compilation or test",
+  "web": [
+    {
+      "file": "metal-no-copy.md",
+      "url": "https://developer.apple.com/documentation/metal/mtldevice/makebuffer(bytesnocopy:length:options:deallocator:).md",
+      "command": [
+        "curl",
+        "--fail",
+        "--location",
+        "--silent",
+        "--show-error",
+        "--output",
+        "/tmp/kadek-unimem-block-access-primary/metal-no-copy.md",
+        "https://developer.apple.com/documentation/metal/mtldevice/makebuffer(bytesnocopy:length:options:deallocator:).md"
+      ],
+      "exit": 0,
+      "sha256": "200dcc85aec1f505126f4e231bbaa7a31dd240677d6ed88ebaccdfb30111c8b0"
+    },
+    {
+      "file": "getpagesize.html",
+      "url": "https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/getpagesize.3.html",
+      "command": [
+        "curl",
+        "--fail",
+        "--location",
+        "--silent",
+        "--show-error",
+        "--output",
+        "/tmp/kadek-unimem-block-access-primary/getpagesize.html",
+        "https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/getpagesize.3.html"
+      ],
+      "exit": 0,
+      "sha256": "326cf6598dbdd4b0d0f8f311ea6aace7e30fff2b7ff18158060705508d8dbe0d"
+    },
+    {
+      "file": "iosurface-base.md",
+      "url": "https://developer.apple.com/documentation/iosurface/iosurfacegetbaseaddress(_:).md",
+      "command": [
+        "curl",
+        "--fail",
+        "--location",
+        "--silent",
+        "--show-error",
+        "--output",
+        "/tmp/kadek-unimem-block-access-primary/iosurface-base.md",
+        "https://developer.apple.com/documentation/iosurface/iosurfacegetbaseaddress(_:).md"
+      ],
+      "exit": 0,
+      "sha256": "82a1f0cd97a30f0c5658d12f7c1e53613cc983528e75459833db519cf1499aca"
+    },
+    {
+      "file": "iosurface-size.md",
+      "url": "https://developer.apple.com/documentation/iosurface/iosurfacegetallocsize(_:).md",
+      "command": [
+        "curl",
+        "--fail",
+        "--location",
+        "--silent",
+        "--show-error",
+        "--output",
+        "/tmp/kadek-unimem-block-access-primary/iosurface-size.md",
+        "https://developer.apple.com/documentation/iosurface/iosurfacegetallocsize(_:).md"
+      ],
+      "exit": 0,
+      "sha256": "b44ba5314ececacd22fadd2db139d1ef4af8d04a4b9c08c68512f4f1fdd2938e"
+    },
+    {
+      "file": "xnu-vm_map.c",
+      "url": "https://raw.githubusercontent.com/apple-oss-distributions/xnu/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/osfmk/vm/vm_map.c",
+      "command": [
+        "curl",
+        "--fail",
+        "--location",
+        "--silent",
+        "--show-error",
+        "--output",
+        "/tmp/kadek-unimem-block-access-primary/xnu-vm_map.c",
+        "https://raw.githubusercontent.com/apple-oss-distributions/xnu/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/osfmk/vm/vm_map.c"
+      ],
+      "exit": 0,
+      "sha256": "25e61323f40fa0d5dc3da5b01f8eb2e1dc78f5338b41a7a43e7d86ad04cae039"
+    }
+  ],
+  "sdk_manifest": "sdk-inputs.json",
+  "unsuccessful_fetches": [
+    {
+      "url": "https://developer.apple.com/documentation/kernel/1402130-mach_vm_region_recurse.md",
+      "exit": 22,
+      "status": 404
+    },
+    {
+      "url": "https://developer.apple.com/documentation/kernel/1402114-mach_vm_region_recurse.md",
+      "exit": 22,
+      "status": 404
+    }
+  ],
+  "sdk_basis": "SDK header and pinned XNU source cover recurse ABI/semantics instead"
+}

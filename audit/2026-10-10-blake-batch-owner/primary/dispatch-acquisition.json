@@ -1,0 +1,70 @@
+[
+  {
+    "name": "dispatch-threads.md",
+    "url": "https://developer.apple.com/documentation/metal/mtlcomputecommandencoder/dispatchthreads%28_%3Athreadsperthreadgroup%3A%29.md",
+    "args": [
+      "-fL",
+      "--retry",
+      "2",
+      "-o",
+      "/tmp/xena-gpu-metal-dispatch-primary/dispatch-threads.md",
+      "https://developer.apple.com/documentation/metal/mtlcomputecommandencoder/dispatchthreads%28_%3Athreadsperthreadgroup%3A%29.md"
+    ],
+    "started": "2026-10-10T02:59:19.425751+00:00",
+    "finished": "2026-10-10T02:59:20.148976+00:00",
+    "exit": 0,
+    "stdout": "",
+    "stderr": "  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r100  2108  100  2108    0     0   2966      0 --:--:-- --:--:-- --:--:--  2964\r100  2108  100  2108    0     0   2965      0 --:--:-- --:--:-- --:--:--  2964\n",
+    "sha256": "01ddff3492838c156322f0c68a020c1c56c48fb89fdb00573766682ca80a0247"
+  },
+  {
+    "name": "grid-sizes.md",
+    "url": "https://developer.apple.com/documentation/metal/calculating-threadgroup-and-grid-sizes.md",
+    "args": [
+      "-fL",
+      "--retry",
+      "2",
+      "-o",
+      "/tmp/xena-gpu-metal-dispatch-primary/grid-sizes.md",
+      "https://developer.apple.com/documentation/metal/calculating-threadgroup-and-grid-sizes.md"
+    ],
+    "started": "2026-10-10T02:59:20.149257+00:00",
+    "finished": "2026-10-10T02:59:20.811657+00:00",
+    "exit": 0,
+    "stdout": "",
+    "stderr": "  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r100  6823  100  6823    0     0  10481      0 --:--:-- --:--:-- --:--:-- 10480\n",
+    "sha256": "d39d44930640cc1d093d92066d109eba53aa138daacc2ab3e2efd6f4c59177e3"
+  },
+  {
+    "name": "max-group.md",
+    "url": "https://developer.apple.com/documentation/metal/mtldevice/maxthreadsperthreadgroup.md",
+    "args": [
+      "-fL",
+      "--retry",
+      "2",
+      "-o",
+      "/tmp/xena-gpu-metal-dispatch-primary/max-group.md",
+      "https://developer.apple.com/documentation/metal/mtldevice/maxthreadsperthreadgroup.md"
+    ],
+    "started": "2026-10-10T02:59:20.811909+00:00",
+    "finished": "2026-10-10T02:59:21.505172+00:00",
+    "exit": 0,
+    "stdout": "",
+    "stderr": "  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r100  1633  100  1633    0     0   2401      0 --:--:-- --:--:-- --:--:--  2405\n",
+    "sha256": "40f2af3209c3c399021b9aa72fd3b1a4609de495205d568c0a147e80e85405b5"
+  },
+  {
+    "name": "feature-tables.pdf",
+    "url": "https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf",
+    "command": "curl -fL --retry 2 -o <path> <url>",
+    "receipt": "Initial acquisition exec session88627 completed exit0; full curl transfers and pdftotext -layout both completed. Existing files, no refetch.",
+    "sha256": "9f31df15dd6827545702c5a0845f6e36e1889878cd0e534123bd70211e5c00a8"
+  },
+  {
+    "name": "msl.pdf",
+    "url": "https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf",
+    "command": "curl -fL --retry 2 -o <path> <url>",
+    "receipt": "Initial acquisition exec session88627 completed exit0; full curl transfers and pdftotext -layout both completed. Existing files, no refetch.",
+    "sha256": "41538b30d2f1140a5b2a0c84ce0a9f7b67bf0c707e224cfea0bfe5a44aa26cf5"
+  }
+]
