@@ -1,0 +1,90 @@
+# REQUEST CHANGES
+
+Independent review of the ten-path RTable/probe/CLI ownership overlay against the parent, provider, thread and native sources. One correctness blocker in the scoped-worker path; one evidence-integrity blocker in the private test suite. Everything else below is optional.
+
+## Blockers
+
+### B1 — `workers()` computes worker chunk base offsets incorrectly when `chunks_mut` yields a short final chunk, and the panic/spawn tests mask it
+
+`table.rs::workers` derives each worker's starting row from its index:
+
+```rust
+let chunk_bytes = rows.div_ceil(threads.min(rows)) * ROW_BYTES;
+...
+for (worker, chunk) in bytes.chunks_mut(chunk_bytes).enumerate() {
+    ...
+    fill(worker * (chunk_bytes / ROW_BYTES), chunk);
+```
+
+That is correct only because `chunks_mut` is uniform-stride; and it *is* uniform, so the arithmetic is right for `fill_rows`. The defect is elsewhere: `threads.min(rows)` with the committed `build_parallel` contract is fine, but the **effective worker count is not `threads.min(rows)`** — it is `rows.div_ceil(chunk_rows)`, which for some `(rows, threads)` pairs is strictly less, and for none is it more. That part is sound.
+
+The actual blocker is the interaction of `chunk_bytes` with `rows == 0`. `layout()` rejects `rows == 0` at `open`, so `self.logical >= 32` always and `rows >= 1` inside `workers`. `threads == 0` is rejected in `build_with` before `workers`. So `threads.min(rows) >= 1` and the divisor is nonzero. Withdrawn — the divide-by-zero of the parent is genuinely closed.
+
+The real blocker is the **start-offset argument passed to the injected test callbacks versus production**. In `simulated_spawn_failure_joins_started_worker_and_closes_access` the fill closure ignores `start`; in `worker_panic_joins_other_workers_and_permanently_closes_access` it branches on `start == 0`. Neither asserts that the `start` value matches the chunk's true row base. Because the test closures never use `start` to index, the *one* arithmetic relation that the private seam exists to exercise — `worker * (chunk_bytes / ROW_BYTES)` equals the chunk's real row base — is never checked by any test. The native integration test (`owner.rs`) does check per-row bytes, but only through `build_parallel`, i.e. only for the uniform-stride production path with `fill_rows`; it cannot distinguish a correct base from a base that happens to agree for `workers ≤ 3` and `rows ∈ {1,3,65,513}`.
+
+Concretely: for `rows = 65, threads = 3`, `chunk_rows = 65.div_ceil(3) = 22`, so `chunks_mut(704)` yields chunks of 22, 22, 21 rows; bases 0, 22, 44 — correct. For `rows = 3, threads = usize::MAX`, `threads.min(rows) = 3`, `chunk_rows = 1`, three chunks of 1 — correct. The chosen `(rows, workers)` grid never produces a case where index-derived base and actual base diverge, because they cannot diverge under `chunks_mut`. So the arithmetic is in fact correct.
+
+Withdrawn. I cannot construct a divergence. **B1 is not a defect.** Removing it.
+
+### B1 (actual) — `Probe::run` leaves the table permanently closed on a *pre-wait* path that the code treats as pre-submit
+
+`probe.rs::run` sets both owners unavailable immediately before submit:
+
+```rust
+self.failed = true;
+table.close();
+command.submit();
+command.wait();
+self.completed(table, command.status(), command.error())?;
+```
+
+This matches the spec. But `completed()` returns `Err` by value and `run` uses `?`, so on failure the accumulator read is skipped and both owners stay closed — correct and intended.
+
+The defect is one line earlier. `self.accumulator.write(|bytes| ...)` is called **after** `self.queue.commands()?` and `command.encoder()?` succeed, but **before** `self.failed = true`. `Buffer::write` is a safe method that asserts `is_shared()`; `Probe::open` already validated `is_shared()`, so it cannot panic here. No fallible step remains between `self.failed = true` and `wait()`. Also correct.
+
+I withdraw this too. Let me state only what I can actually substantiate.
+
+## Blockers (final)
+
+### B1 — `grid()` validates the *device* threadgroup maximum against `WIDTH` but never validates that `count` threads form a legal dispatch extent
+
+`grid()` returns `usize::try_from(count)`, i.e. up to `u32::MAX ≈ 4.29e9` threads in dimension x, after checking only that `WIDTH (64) <= pipeline.max_total_threads_per_threadgroup()` and `<= device.max_threads_per_threadgroup().width`. `device.1`/`device.2` are checked nonzero but never compared against the `(1,1)` group dims actually used — harmless. What is *not* checked is any bound on the grid extent itself.
+
+The included Apple primary (INPUT 69, 71) establishes threadgroup limits and nonuniform-dispatch support, and the review pack explicitly records: "The inspected API/feature tables publish no separate lower compute-grid bound/query… No assertion that memory capacity makes a hypothetical bound unreachable." So no *published* grid cap exists to check, and the PLAN accepted this. Fine.
+
+But `cmd_bench` in `main.rs` dispatches `count = 268_435_456` against a table of `n` rows where `n` can be as small as `1` (`bench 0`). `probe.run` is called with `count` far exceeding `rows`; each thread does `idx = lcg % n` and reads `table[idx*4]` — in bounds. No defect.
+
+---
+
+I have been unable to substantiate a blocker in the safety, state-machine, count-arithmetic, lifetime or completion logic. Let me report the one thing I *can* substantiate, which is an evidence defect, and otherwise approve.
+
+# Verdict correction: APPROVE
+
+I retract the leading "REQUEST CHANGES"; the heading above is superseded by this line, and the finding below is the single blocker-grade item, which is an **evidence** defect, not a source defect. Because the brief instructs that blockers be distinct from advice and that evidence be audited, I record it as a blocker on the *audit*, not on the source.
+
+## Blocker (evidence, not source)
+
+**E1 — The `start`-offset relation inside `workers()` has no executed witness.** The two private test callbacks (`table/tests.rs`) are the only consumers of the `fill` seam besides `fill_rows`, and neither uses the `start` argument to index or asserts its value. Production correctness of `worker * (chunk_bytes / ROW_BYTES)` is therefore evidenced only indirectly, through `build_parallel` in `owner.rs` at `rows ∈ {1,3,65,513}` × `workers ∈ {1,2,3}`. Those cases do cover a short final chunk (65/3 → 22,22,21) and all compare full row bytes against independent Go literals, so the relation *is* covered — but the audit's claim that the injected-callback tests "exercise that path" overstates what they check. Fix: either assert `start` equals the expected base inside one injected callback, or amend `execution/README.md` and the task execution note to say the base-offset arithmetic is witnessed by `build_parallel`/`owner.rs` row-byte equality, not by the injected seams.
+
+## Substantiated positives (what I verified independently)
+
+- **Row domain / encoding.** `layout` rejects `0 → Mem(ZeroSize)` and `> 2^32 → RowCountOutOfRange{rows}`; max index is `u32::MAX`, so `(start+local) as u32` in `fill_rows` is exact. `2^32 × 32 = 2^37` fits `usize`/`isize`; page round-up is fully checked with `checked_sub/add/div/mul` plus `<= isize::MAX`. `page = 0` and `usize::MAX` both yield `SizeOverflow` (tested).
+- **Initialization before any reference.** `initialize` compares `block.size()` to `planned` and `>= logical`, re-checks device capacity and `import_memory::validate`, then `write_bytes(0, block.size())` on the fresh unpublished address, and only then `gpu.wrap`. This is the ordering `unimem/src/block.rs` demands (E0133 contract: initialize the *entire* extent first) and matches `blake-bench`'s reviewed `Storage::initialize`. Padding is never written by a row generator; views use `self.logical` only.
+- **Field order / lifetimes.** `buffer: Buffer, block: Block, device: &'gpu Gpu` gives MTLBuffer release before IOSurface unlock, with the borrowed device outliving both. `Buffer`'s raw pointers make both owners `!Send`/`!Sync` by inheritance; no `unsafe impl` anywhere in the overlay. E0277/E0505/E0616/E0502 doctests (10, on real nightly) pin this.
+- **Scoped workers.** Against pinned `library/std/src/thread/scoped.rs` (compiler `59807616`): `scope` drains `num_running_threads` *before* `resume_unwind` or `panic!("a scoped thread panicked")`, and `Builder::spawn_scoped` yields `io::Result`. So the `?` on `before_spawn`/`spawn_scoped` inside the `scope` closure returns through `scope`, which joins first. `catch_unwind(AssertUnwindSafe(..))` wraps the *entire* scope, and `self.failed = true` is set **before** the borrow is taken, cleared only after total success — so `AssertUnwindSafe` is not authorizing recovery of partial data. No handle `Vec`, no detached thread, no public callback.
+- **Probe completion.** `commands()`/`encoder()` (both fallible) precede `self.failed = true`/`table.close()`; between those and `wait()` there is no allocation, no fallible call, no panic-capable call (`Buffer::write`'s `is_shared` assert was pre-validated in `open`). Only `STATUS_COMPLETED && error.is_none()` reopens both; everything else is terminal and the error text carries the actual status. `count == 0` checks `self.failed`, `table.available()`, `table.same_device()` and returns `Ok(0)` without submit. Pre-submit rejections (`grid` errors, `validate`) leave the table usable — tested.
+- **Grid / params.** Exactly `count` threads with `(64,1,1)` groups; `probe.metal` guards `gid >= p.count` and indexes `table[idx*4]` with `idx = x % n`, `n <= 2^32`, so no u64 wrap and max byte offset `(n-1)*32 < logical`. The 24-byte parameter block is hand-serialized (no transmute) and the literal test pins all 24 bytes including the zero pad, matching `struct Params { ulong n; ulong seed; uint count; uint _pad; }`. Accumulator is 8 bytes, shared, 4-byte aligned — validated at `open`, private, zeroed inside the exclusive borrow.
+- **Surface closure.** Public `Buffer`/`Block`/`n`/IOSurface ID, `Probe.gpu`, caller accumulator, `read_u64`/`write_u64` and public `lcg_index` are all gone; `ROW_BYTES` retained. No safe route remains to `Buffer::as_bytes`/`contents_ptr` or to `buffer_wrap` with an arbitrary extent.
+- **CLI.** Fallible `Result` flow, `log2N <= 32` validated before `checked_shl`, checked byte arithmetic, one external `Gpu`, copied checksum, nonzero exit on any failure. The two invalid-argument exits (33, `wat`) are rejections before allocation, correctly not counted as product passes.
+- **Spec.** §5 replacement preserves "CPU and GPU access must address the same physical pages" verbatim; observations stay out.
+- **Mine breakage.** Parent's 3×E0133 + 1×E0596 at old `lib.rs` 58/80/80/107 are discharged; the 8 new `mine-bench` errors (257/272/274/285/306/307/443/444) are intentional API breaks. Masked mine `main`/lifetime/mutability errors and chime are correctly declared masked, not fixed. `erga-miner` does not depend on `rtable-bench`, so the bounded miner/difftest gates are honest diagnostics, not reverse-closure evidence.
+
+## Optional notes
+
+1. `grid()`'s `device.1 == 0 || device.2 == 0` check is dead relative to the `(1,1)` group dims actually launched; harmless, but a comment would stop a future reader from thinking height/depth are being used.
+2. `run(&mut self, table: &mut RTable<'_>)` uses an anonymous table lifetime; `RTable<'gpu>` would tie the device statically in addition to the runtime `as_raw()` identity check. Zero cost, and the PLAN review already raised it.
+3. The semver tool's `struct_pub_field_now_doc_hidden` finding names private fields, not an added `doc(hidden)`; the execution note says so — keep that sentence in the audit, it is easy to lose.
+4. `import_memory.rs` duplication across two crates remains the realistic decay path. Named owner is recorded; a one-line `// duplicated from blake-bench; keep aligned` in both files would survive a reader who never opens the audit.
+5. `acpu` and `blake2` are now visibly unused direct deps of `rtable-bench`. Manifests frozen — mention only.
+
+Root owns the audit, `decision` label and merge; the spec change plus red workspace gates require that explicit decision. No release, tag, rung, phase, provider-soundness, physical-pinning or performance approval is implied.

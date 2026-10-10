@@ -59,11 +59,12 @@ read from a single source regardless of where the user mines.
 
 8 GB machines cannot run this and must not be told otherwise.
 
-Blake benchmark batches own fully initialized input/output backing for a fixed
-nonzero count. CPU and GPU access must address the same physical pages. CPU views
-cover logical records, and dispatch exclusively retains their native imports
-through successful completion. Failed completion makes the batch unavailable;
-pre-submit errors preserve usable input.
+Blake batches and R-tables own fully initialized backing for fixed nonzero
+record counts. CPU and GPU access must address the same physical pages.
+CPU views and table builds cover logical records. Private native imports remain
+owned through synchronous completion; conflicting CPU/device access is excluded.
+Partial table builds and failed completion make affected owners unavailable;
+pre-submit rejection preserves usable input.
 
 ## 6. the interface
 

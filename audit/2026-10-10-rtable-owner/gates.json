@@ -1,0 +1,497 @@
+[
+  {
+    "label": "focused-debug-01",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "test",
+      "-p",
+      "rtable-bench",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "d74025e6eed8128a4ca4b468259b6c30eb72d91f8b8773cc57f8890b54df68c8",
+    "stderr_sha256": "1a29920bed33183ef33442980ac868c9986fef0de115c009e4b41d2de525ac56",
+    "source": "source-freeze-v1.json; original bytes preserved overlay-v1"
+  },
+  {
+    "label": "selected-clippy",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "clippy",
+      "-p",
+      "rtable-bench",
+      "--all-targets",
+      "--no-deps",
+      "--locked",
+      "--offline",
+      "--",
+      "-Dwarnings"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "266b6b79124683f8f4da3a5ea8eac235e31e045198dc2a0722e6271d0192fd18",
+    "source": "source-freeze-v1.json; original bytes preserved overlay-v1"
+  },
+  {
+    "label": "selected-check",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "check",
+      "-p",
+      "rtable-bench",
+      "--all-targets",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e422ebfea0e9972618fd4142600bbe138cfd7e40f55b5da94f69a28fdcf57d5e",
+    "source": "source-freeze-v1.json; original bytes preserved overlay-v1"
+  },
+  {
+    "label": "strict-docs",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "doc",
+      "-p",
+      "rtable-bench",
+      "--no-deps",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "4936f7f3006dcb8e8667690e89fb68924238318c205ed0e50bdad1bc1623789d",
+    "source": "source-freeze-v1.json; original bytes preserved overlay-v1"
+  },
+  {
+    "label": "focused-release",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "test",
+      "-p",
+      "rtable-bench",
+      "--release",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "4f1432c4bdc42f857bc009cb632581f5be0161c7969e7c6e91ebf90ccab2b5ca",
+    "stderr_sha256": "bca3fbbf736922f6ff418fba56e350dbdef7aecd6f94371da6974fdd5a8a7a51",
+    "source": "source-freeze-v1.json; original bytes preserved overlay-v1"
+  },
+  {
+    "label": "owned-fmt",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustfmt",
+    "args": [
+      "--check",
+      "--edition",
+      "2021",
+      "--config",
+      "skip_children=true",
+      "rs/rtable-bench/src/lib.rs",
+      "rs/rtable-bench/src/main.rs",
+      "rs/rtable-bench/src/table.rs",
+      "rs/rtable-bench/src/probe.rs",
+      "rs/rtable-bench/src/import_memory.rs",
+      "rs/rtable-bench/src/table/tests.rs",
+      "rs/rtable-bench/src/probe/tests.rs",
+      "rs/rtable-bench/tests/owner.rs",
+      "rs/rtable-bench/tests/support/vectors.rs"
+    ],
+    "exit_code": 1,
+    "stdout_sha256": "a45f68ce2909cf8afe4c60b5e4415d0d055b150bc8cebf0f60c93d5f99c7701a",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "source": "source-freeze-v1.json; original bytes preserved overlay-v1"
+  },
+  {
+    "label": "nightly-borrow-docs",
+    "command": "/Users/master/.rustup/toolchains/nightly-2025-11-26-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "test",
+      "-p",
+      "rtable-bench",
+      "--doc",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "5df5ad47c7cc3b85b0350bba2dc6fca1b34bbe702ce3ef553ca3a55b78e425e7",
+    "stderr_sha256": "69fa0b67b10360e6a04dfe1bae8d30e85d461c346c5ebdb3d8a2a7033b4de111",
+    "source": "source-freeze-v1.json; original bytes preserved overlay-v1"
+  },
+  {
+    "label": "cli-verify",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "run",
+      "-p",
+      "rtable-bench",
+      "--bin",
+      "rtable-bench",
+      "--locked",
+      "--offline",
+      "--",
+      "verify",
+      "4"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "98ad69db2b5d660c7e13488699f4bd05c0e993172c8d3f34d8bdc052073d4ad3",
+    "stderr_sha256": "1d349e10ffb41d9c1301e1b0dce1a13da60bf811e297627f188dd80e3f5974f5",
+    "source": "source-freeze-v1.json; original bytes preserved overlay-v1"
+  },
+  {
+    "label": "cli-invalid-high",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "run",
+      "-p",
+      "rtable-bench",
+      "--bin",
+      "rtable-bench",
+      "--locked",
+      "--offline",
+      "--",
+      "verify",
+      "33"
+    ],
+    "exit_code": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "140e49a92a1c7fa48484ecd06bed8277b6675fcd9c1feba23ca9a078fd25a741",
+    "source": "source-freeze-v1.json; original bytes preserved overlay-v1"
+  },
+  {
+    "label": "cli-invalid-text",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "run",
+      "-p",
+      "rtable-bench",
+      "--bin",
+      "rtable-bench",
+      "--locked",
+      "--offline",
+      "--",
+      "verify",
+      "wat"
+    ],
+    "exit_code": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "d477d145970142d304530f964d7eec890f42391d25b5a99b0c78856f2e65a4e9",
+    "source": "source-freeze-v1.json; original bytes preserved overlay-v1"
+  },
+  {
+    "label": "owned-fmt-final",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustfmt",
+    "args": [
+      "--check",
+      "--edition",
+      "2021",
+      "--config",
+      "skip_children=true",
+      "rs/rtable-bench/src/lib.rs",
+      "rs/rtable-bench/src/main.rs",
+      "rs/rtable-bench/src/table.rs",
+      "rs/rtable-bench/src/probe.rs",
+      "rs/rtable-bench/src/import_memory.rs",
+      "rs/rtable-bench/src/table/tests.rs",
+      "rs/rtable-bench/src/probe/tests.rs",
+      "rs/rtable-bench/tests/owner.rs",
+      "rs/rtable-bench/tests/support/vectors.rs"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "focused-debug-final",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "test",
+      "-p",
+      "rtable-bench",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "42608b9ad017a3f9e519e517f38ecf4a6b3f12a696861c6cbdbd7db90ce89e3f",
+    "stderr_sha256": "e7d549668d2a41d915dee479cae8d6254dcff2f16c53ad004fae752ab5610d23",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "selected-clippy-final",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "clippy",
+      "-p",
+      "rtable-bench",
+      "--all-targets",
+      "--no-deps",
+      "--locked",
+      "--offline",
+      "--",
+      "-Dwarnings"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "3d287c92729964e71ac4b39f7b2572ad7484a70f5ae6eae2cdda1118bb7281bd",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "workspace-check",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "check",
+      "--workspace",
+      "--all-targets",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 101,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "60abffbadf32e8cadfa78461821c13cd49a0ce001e89d8179e66f53a8414d37d",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "parent-workspace-check",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "check",
+      "--workspace",
+      "--all-targets",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 101,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "c0d954cdd494cbd5c0e09832dc562c6099a54c082072de295be802745dfd56e3",
+    "source": "exact parent archives"
+  },
+  {
+    "label": "workspace-test",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "test",
+      "--workspace",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 101,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "5324242b87e00225b98bc4bc37fd476732d4dabc79307138dd59bac5994c7a02",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "parent-workspace-test",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "test",
+      "--workspace",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 101,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "9db0103428d5693cdf4dcd44b4924bb6184de3fc7ad9ea9167432827ca157ebb",
+    "source": "exact parent archives"
+  },
+  {
+    "label": "workspace-release-build",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "build",
+      "--release",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 101,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "390591de1c94ca962c7b7d7ee04c84b2590b3e08f085d330db1afee7a58c61bd",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "parent-workspace-release-build",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "build",
+      "--release",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 101,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "fe9c977b21707c3c745886f6d16ce824fc7faf56dc3180892cc6d1acd50b8e2a",
+    "source": "exact parent archives"
+  },
+  {
+    "label": "workspace-clippy",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--locked",
+      "--offline",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 101,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "203aa362e554ecf2701577b318d56f076e576f5e35715a53df6a091d059bde2a",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "parent-workspace-clippy",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--locked",
+      "--offline",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 101,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e59ff617fd0c0ce05ebb211d8357d07cb8aa7cbebf755b20569181173a864502",
+    "source": "exact parent archives"
+  },
+  {
+    "label": "workspace-clippy-diagnostic",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--no-deps",
+      "--locked",
+      "--offline",
+      "--",
+      "-W",
+      "warnings"
+    ],
+    "exit_code": 101,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "203aa362e554ecf2701577b318d56f076e576f5e35715a53df6a091d059bde2a",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "parent-workspace-clippy-diagnostic",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--no-deps",
+      "--locked",
+      "--offline",
+      "--",
+      "-W",
+      "warnings"
+    ],
+    "exit_code": 101,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "362f6a0db0320a317fc31d309d60c1849fc12bd7407d47927965b9af14c2c7ed",
+    "source": "exact parent archives"
+  },
+  {
+    "label": "workspace-fmt",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "fmt",
+      "--all",
+      "--check"
+    ],
+    "exit_code": 1,
+    "stdout_sha256": "e5dd69f34730bf09d73a235a933f83ce3372a4ea52155dc6dc8b3992b315294d",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "parent-workspace-fmt",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "fmt",
+      "--all",
+      "--check"
+    ],
+    "exit_code": 1,
+    "stdout_sha256": "52f4053cdeb6a835ff1e3a15a31b28a8c8f28c29e386a14085a80b6017417fd9",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "source": "exact parent archives"
+  },
+  {
+    "label": "miner-check",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "check",
+      "-p",
+      "erga-miner",
+      "--all-targets",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "9a1090d2f73cdd28608de8fe5b1b3d73342bc372dca4ee15dd7637fcd4391cc7",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "miner-tests",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "test",
+      "-p",
+      "autolykos",
+      "-p",
+      "erga-miner",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "dc5381ac51bd1f7e7921d3a18d5cd29e25d3c059c66c6ebb9a2e05fb15e2e057",
+    "stderr_sha256": "144974c6877cc669ccae83b0f6d26c397ddbd9a009de4a725bb8dad672dc25ea",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "cli-difftest",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "run",
+      "-p",
+      "erga-cli",
+      "--bin",
+      "erga",
+      "--locked",
+      "--offline",
+      "--",
+      "difftest"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e8bc83e36f7571a6b733e454a8bf9ceb315e7fad769bdff6964acc191aba6dca",
+    "stderr_sha256": "0d95d24d3bc7e05c8f8d85c7394f12176c6c2cf3d6a6a25a753795d4f34a4a32",
+    "source": "source-freeze-v2.json"
+  },
+  {
+    "label": "semver-patch",
+    "command": "/Users/master/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo",
+    "args": [
+      "semver-checks",
+      "-p",
+      "rtable-bench",
+      "--release-type",
+      "patch",
+      "--baseline-root",
+      "/tmp/erga-rtable-owner-execution-v1/legacy/erga"
+    ],
+    "exit_code": 100,
+    "stdout_sha256": "d88063fcd34092174a4249d5e0e71b8e324923c53376562b8eaaecfcb0f60bff",
+    "stderr_sha256": "f9b3f1dde8e79d7c1647506675ce889546c26cbf0612dbbdfeb72ff4ef306fdf",
+    "source": "source-freeze-v2.json"
+  }
+]

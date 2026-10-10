@@ -1,0 +1,27 @@
+{
+  "command": "nu",
+  "args": [
+    "/Users/master/cyber/erga-unimem-rtable-owner/audit/2026-10-10-rtable-owner/verify.nu",
+    "/Users/master/cyber/erga-unimem-rtable-owner/audit/2026-10-10-rtable-owner"
+  ],
+  "start": "2026-10-10T07:25:26.369425+00:00",
+  "end": "2026-10-10T07:25:26.622034+00:00",
+  "exit_code": 0,
+  "stdout": "{\n  \"payloads\": 189,\n  \"commands\": 29,\n  \"raw_streams\": 58,\n  \"zero\": 13,\n  \"nonzero\": 16,\n  \"source_snapshots\": 2,\n  \"paths_per_snapshot\": 10,\n  \"reconstructed_review_streams\": 56,\n  \"command_dictionary_lossless\": true,\n  \"all_payload_hashes_match\": true,\n  \"reran_native_work\": false,\n  \"archive_sha256\": \"d8ac363e27d6fba2dc2f9a186420163a4b5533dac092cdeae63b0efc74a4999c\"\n}\n",
+  "stderr": "",
+  "verification": {
+    "payloads": 189,
+    "commands": 29,
+    "raw_streams": 58,
+    "zero": 13,
+    "nonzero": 16,
+    "source_snapshots": 2,
+    "paths_per_snapshot": 10,
+    "reconstructed_review_streams": 56,
+    "command_dictionary_lossless": true,
+    "all_payload_hashes_match": true,
+    "reran_native_work": false,
+    "archive_sha256": "d8ac363e27d6fba2dc2f9a186420163a4b5533dac092cdeae63b0efc74a4999c"
+  },
+  "reran_native_work": false
+}
