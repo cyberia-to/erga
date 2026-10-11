@@ -8,7 +8,7 @@ use unimem::{Block, MemError};
 ///
 /// An unbuilt table contains zero bytes. Only a successful build establishes the
 /// row hash relation. A partial worker failure permanently closes all byte access.
-/// No native alias escapes; the borrowed device outlives the private import.
+/// Safe methods expose no native alias; the device outlives the private import.
 ///
 /// ```compile_fail,E0277
 /// fn send<T: Send>() {}
@@ -125,8 +125,9 @@ impl<'gpu> RTable<'gpu> {
         // native import exists. Initialize all padding before either is created.
         unsafe { block.address().write_bytes(0, block.size()) };
         // SAFETY: Initialized page-aligned single-region storage stays owned until
-        // after Buffer drops. Private import cannot escape; exclusive builds and
-        // synchronous probes exclude conflicting access and retain it until wait.
+        // after Buffer drops. Safe methods keep the import private; the unsafe
+        // borrow requires retained read-only use. Exclusive builds and synchronous
+        // probes exclude conflicting access and retain it until wait.
         let buffer = unsafe { gpu.wrap(&block)? };
         Ok(Self {
             buffer,
@@ -150,7 +151,7 @@ impl<'gpu> RTable<'gpu> {
         }
     }
 
-    /// Logical bytes, initially zero; a live view excludes build and GPU access.
+    /// Logical bytes, initially zero; a live view excludes conflicting access.
     /// ```compile_fail,E0502
     /// fn overlap(table: &mut rtable_bench::RTable<'_>) {
     ///     let bytes = table.bytes().unwrap();
@@ -161,8 +162,32 @@ impl<'gpu> RTable<'gpu> {
     pub fn bytes(&self) -> Result<&[u8], BenchError> {
         self.available()?;
         // SAFETY: Initialized prefix is within retained actual extent; shared
-        // borrow excludes mutable CPU build, dispatch and owner destruction.
+        // borrow excludes mutable CPU build, probe and owner destruction. The
+        // unsafe native borrow separately requires read-only, completed work.
         Ok(unsafe { std::slice::from_raw_parts(self.block.address(), self.logical) })
+    }
+
+    /// Borrow the existing native import for externally proven read-only work.
+    ///
+    /// # Safety
+    /// The caller must prohibit CPU/raw/native writes through this Buffer and
+    /// derived aliases, including `Buffer::write` and `contents_ptr`. Shader
+    /// reads must stay within logical rows with their required alignment. Retain
+    /// the table, device, backing/import and every encoded use until completion;
+    /// exclude builds and other mutation. Return no safe native alias. Immutable
+    /// CPU reads may overlap proven read-only GPU work. This borrow itself does
+    /// not wait or constrain Metal's retained aliases or other threads.
+    ///
+    /// ```compile_fail,E0133
+    /// fn native<'a>(table: &'a rtable_bench::RTable<'_>, gpu: &aruminium::Gpu) {
+    ///     let _ = table.read_only_buffer(gpu);
+    /// }
+    /// ```
+    pub unsafe fn read_only_buffer(&self, gpu: &Gpu) -> Result<&Buffer, BenchError> {
+        self.available()?;
+        self.same_device(gpu)?;
+        self.validate()?;
+        Ok(&self.buffer)
     }
 
     /// Write Blake2b256(LE(row:u32)||LE(height:u32)) into each logical row.

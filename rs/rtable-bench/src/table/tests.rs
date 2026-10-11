@@ -138,3 +138,20 @@ fn simulated_spawn_failure_joins_started_worker_and_closes_access() {
     assert_eq!(finished.load(Ordering::SeqCst), 1);
     closed(&mut table, &mut probe);
 }
+
+#[test]
+fn unsafe_read_only_import_borrows_existing_validated_storage() {
+    let gpu = Gpu::open().unwrap();
+    let mut table = RTable::open(&gpu, 3).unwrap();
+    let pointer = table.bytes().unwrap().as_ptr();
+    // SAFETY: Inspect identities only; no write, retained command or alias escape.
+    let imported = unsafe { table.read_only_buffer(&gpu) }.unwrap();
+    assert_eq!(imported.contents_ptr().cast_const(), pointer);
+    assert!(imported.size() >= 3 * ROW_BYTES);
+    table.failed = true;
+    // SAFETY: No native use; failure must precede exposure of an import.
+    assert!(matches!(
+        unsafe { table.read_only_buffer(&gpu) },
+        Err(BenchError::Unavailable)
+    ));
+}

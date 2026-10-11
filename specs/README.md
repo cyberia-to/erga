@@ -59,12 +59,15 @@ read from a single source regardless of where the user mines.
 
 8 GB machines cannot run this and must not be told otherwise.
 
-Blake batches and R-tables own fully initialized backing for fixed nonzero
-record counts. CPU and GPU access must address the same physical pages.
-CPU views and table builds cover logical records. Private native imports remain
-owned through synchronous completion; conflicting CPU/device access is excluded.
-Partial table builds and failed completion make affected owners unavailable;
-pre-submit rejection preserves usable input.
+Blake batches and R-tables own fully initialized actual backing for fixed nonzero
+logical record counts. CPU and GPU access must address the same physical pages.
+Builds/views cover logical records; native objects stay retained through
+synchronous completion, excluding conflicting access. Mine executors retain
+immutable table/device borrows and initialized private output; their CPU/GPU
+table reads may overlap. V9 owns an initialized texture copy of logical bytes.
+Partial builds and failed Blake/probe completion close affected owners. Failed
+mine completion closes executor/output; read-only tables remain initialized.
+Pre-submit rejection preserves usable input.
 
 ## 6. the interface
 
