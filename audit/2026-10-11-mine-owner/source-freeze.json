@@ -1,0 +1,86 @@
+{
+  "time": "2026-10-11T16:11:21Z",
+  "base": "8dcb33888868d74ddfda3eeeb9bc90e58677b394",
+  "files": [
+    {
+      "path": "rs/mine-bench/src/cli/bench.rs",
+      "sha256": "8d21fcb505e888957867cb5049cc67ea3303858befb24849a117c174b43d8c99"
+    },
+    {
+      "path": "rs/mine-bench/src/cli/timed/tests.rs",
+      "sha256": "644b2ab77fb3f236d4c803b84d7d98a73418f713f8cdc5ad0b29f1d43b76b968"
+    },
+    {
+      "path": "rs/mine-bench/src/cli/timed.rs",
+      "sha256": "c3e4719a472687ebc9a41baa66b53930fab6910e32c1d43f7f894471211c2042"
+    },
+    {
+      "path": "rs/mine-bench/src/cli.rs",
+      "sha256": "ac7a92de45d4fd712df0180989267a2f460ca5289daf161ee488761ce8b4fdff"
+    },
+    {
+      "path": "rs/mine-bench/src/lib.rs",
+      "sha256": "4b908c2246cb802c976e20080874085c6f9f5c50b75ad598c1e86efd375a81c3"
+    },
+    {
+      "path": "rs/mine-bench/src/main.rs",
+      "sha256": "7b8ca41fa345ebd2ed0f6779d5ea8354214b6c0b5f987fae89e48cf3118a4e57"
+    },
+    {
+      "path": "rs/mine-bench/src/owner/tests.rs",
+      "sha256": "14f809231f1ef65456e1a3d79d5dd70b01c70e031e5d632dc92d7452d41cdc59"
+    },
+    {
+      "path": "rs/mine-bench/src/owner.rs",
+      "sha256": "0a6e88dc9a475adf0d22b1e9d1686c9817d6b148ac4700528429e3665cd2f02a"
+    },
+    {
+      "path": "rs/mine-bench/src/reference.rs",
+      "sha256": "421406929925df83cd606d89e18e35c32017b931cb22af866a9c9d5028c87648"
+    },
+    {
+      "path": "rs/mine-bench/src/texture_ffi/tests.rs",
+      "sha256": "6642f85cf8ccbf41203778fe3744e2255e9b0fa420dea9fb8304fd3eb412edaf"
+    },
+    {
+      "path": "rs/mine-bench/src/texture_ffi.rs",
+      "sha256": "34a1cb9a7d6b711a3535d460888d878cc43b553d8942d19d3e0598823df38ea2"
+    },
+    {
+      "path": "rs/rtable-bench/src/table.rs",
+      "sha256": "d6f814665941535985dbde2a0e7d397d87b877228d102d3e0cc3d84c4cf8d912"
+    },
+    {
+      "path": "rs/rtable-bench/src/table/tests.rs",
+      "sha256": "08ea6dda457e9cb6e341d1ddc0dbdb718df14a3d4f0a64b63166e37c08e3c0eb"
+    },
+    {
+      "path": "specs/README.md",
+      "sha256": "89048b54a9167bc65dd418df221ceeea24e15ddb26a011636c198a623d399ad9"
+    },
+    {
+      "path": "rs/mine-bench/tests/fixtures/README.md",
+      "sha256": "dd23f87fc31a9523fe099d721e7174d0a431b3ca4e57d9ed4d00838b534c5519"
+    },
+    {
+      "path": "rs/mine-bench/tests/fixtures/batches.txt",
+      "sha256": "a5aebb0098b44d6a33e813ae1445f990d8a80c5a7c8c3e874463e6a41efe1a2a"
+    },
+    {
+      "path": "rs/mine-bench/tests/fixtures/individual.txt",
+      "sha256": "379c7ea68af95b76f36e8be2a9c83c7ef361a18bfd50340b1422f39100a3b1f1"
+    },
+    {
+      "path": "rs/mine-bench/tests/owner.rs",
+      "sha256": "9e14539a31d73897a2529248c39d5479250060110d24f34a3282f2e259dc3d87"
+    },
+    {
+      "path": "rs/mine-bench/tests/support/mod.rs",
+      "sha256": "e45e4bf04672bdbf831c34e8ff8a94b7a285954d8ee2489abf3a03595e9157f7"
+    },
+    {
+      "path": "rs/mine-bench/tests/vectors.rs",
+      "sha256": "1cea1fd4833eb41766d2f9f30949f86b2e0137124647ecc19a67673bfafa61c6"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "vendor": "xAI",
+  "model": "grok-4.7",
+  "stage": "CODE",
+  "verdict": "APPROVE",
+  "process_exit": 0,
+  "collected_at": "2026-10-11T16:40:29Z",
+  "review_sha256": "43e591cedcead3457904542c2465def43c44e1a655ce4237333187cb0160f6b8",
+  "input_sha256": "f0214fe93da40bd84bc3890fba25255a3108119084bc471b82a48a1f7f838d31",
+  "input_bytes": 500448,
+  "source_freeze_sha256": "6175ec74aac4ccf2493db33b694b02120d4a2ae6a87356be3803cdc8b217b7bf",
+  "fresh_process": true,
+  "tools_used_by_reviewer": false,
+  "production_changes_after_review": false,
+  "scope": "Source repair only. Reviewer read bounded supplied source/records; root verified full evidence separately. No release, version, physical pinning, performance or phase closure."
+}

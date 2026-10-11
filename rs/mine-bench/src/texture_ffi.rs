@@ -1,107 +1,122 @@
-//! Raw ObjC FFI to create an MTLTextureDescriptor for the R-table.
-//!
-//! aruminium exposes `Gpu::texture(desc: ObjcId)` and
-//! `Texture::replace_region`, but not a descriptor builder. We construct
-//! the descriptor via direct `objc_msgSend`.
-
-use std::ffi::{c_char, c_void};
-
+//! Private SDK-compatible descriptor and encoder calls for the fixed V9 profile.
+use crate::BenchError;
 use aruminium::ffi::{MTLOrigin, MTLRegion, MTLSize};
-use aruminium::{Gpu, GpuError, Texture};
-
-type ObjcId = *mut c_void;
-type ObjcSel = *mut c_void;
+use aruminium::{Encoder, Gpu, GpuError, Texture};
+use std::ffi::{c_char, c_void, CStr};
+type Id = *mut c_void;
 
 #[link(name = "objc", kind = "dylib")]
 extern "C" {
     fn objc_msgSend();
-    fn objc_getClass(name: *const c_char) -> ObjcId;
-    fn sel_registerName(name: *const c_char) -> ObjcSel;
+    fn objc_getClass(name: *const c_char) -> Id;
+    fn sel_registerName(name: *const c_char) -> Id;
+}
+const RGBA32_UINT: usize = 123;
+const WIDTH: usize = 16384;
+const ROW_BYTES: usize = WIDTH * 16;
+
+fn selector(name: &CStr) -> Id {
+    // SAFETY: static NUL-terminated SDK selector; registration retains its name.
+    unsafe { sel_registerName(name.as_ptr()) }
 }
 
-// MTLPixelFormatRGBA32Uint
-const PIXEL_FORMAT_RGBA32_UINT: u64 = 123;
-// MTLTextureUsageShaderRead
-const TEXTURE_USAGE_SHADER_READ: u64 = 1;
-// MTLStorageModeShared
-const STORAGE_MODE_SHARED: u64 = 0;
-
-fn cls(name: &str) -> ObjcId {
-    let cname = std::ffi::CString::new(name).unwrap();
-    unsafe { objc_getClass(cname.as_ptr()) }
-}
-
-fn sel(name: &str) -> ObjcSel {
-    let cname = std::ffi::CString::new(name).unwrap();
-    unsafe { sel_registerName(cname.as_ptr()) }
-}
-
-pub fn create_2d_rgba32u_texture(
-    gpu: &Gpu,
-    width: usize,
-    height: usize,
-) -> Result<Texture, GpuError> {
-    let descriptor_class = cls("MTLTextureDescriptor");
-    if descriptor_class.is_null() {
-        return Err(GpuError::TextureCreationFailed(
-            "MTLTextureDescriptor class not found".into(),
+fn geometry(rows: u64, bytes: usize) -> Result<usize, BenchError> {
+    if rows == 0 || !rows.is_multiple_of(8192) || rows > 1 << 27 {
+        return Err(BenchError::InvalidInput(
+            "V9 requires 8192-row multiples up to 2^27",
         ));
     }
-    let make_2d = sel("texture2DDescriptorWithPixelFormat:width:height:mipmapped:");
-    let set_usage = sel("setUsage:");
-    let set_storage = sel("setStorageMode:");
-
-    type MakeDescFn = unsafe extern "C" fn(ObjcId, ObjcSel, u64, u64, u64, u8) -> ObjcId;
-    let make_desc: MakeDescFn = unsafe { std::mem::transmute(objc_msgSend as *const c_void) };
-    let desc = unsafe {
-        make_desc(
-            descriptor_class,
-            make_2d,
-            PIXEL_FORMAT_RGBA32_UINT,
-            width as u64,
-            height as u64,
-            0,
-        )
-    };
-    if desc.is_null() {
-        return Err(GpuError::TextureCreationFailed(
-            "texture2DDescriptor returned nil".into(),
-        ));
+    let height =
+        usize::try_from(rows / 8192).map_err(|_| BenchError::InvalidInput("texture height"))?;
+    if height.checked_mul(ROW_BYTES) != Some(bytes) {
+        return Err(BenchError::InvalidInput("texture logical byte length"));
     }
-
-    type SetU64Fn = unsafe extern "C" fn(ObjcId, ObjcSel, u64);
-    let setu64: SetU64Fn = unsafe { std::mem::transmute(objc_msgSend as *const c_void) };
-    unsafe { setu64(desc, set_usage, TEXTURE_USAGE_SHADER_READ) };
-    unsafe { setu64(desc, set_storage, STORAGE_MODE_SHARED) };
-
-    unsafe { gpu.texture(desc) }
+    Ok(height)
 }
 
-/// Upload a contiguous byte buffer into the texture's raw bytes.
-/// The texture must have been created with the exact width/height that
-/// covers `src_len` at 16 bytes per texel.
-pub fn upload_rtable(
-    texture: &Texture,
-    src_bytes: *const u8,
-    src_len: usize,
-    width: usize,
-    height: usize,
-) {
-    let region = MTLRegion {
-        origin: MTLOrigin { x: 0, y: 0, z: 0 },
-        size: MTLSize {
-            width,
-            height,
-            depth: 1,
-        },
-    };
-    let bytes_per_row = width * 16; // RGBA32Uint = 16 bytes/texel
-    assert_eq!(
-        bytes_per_row * height,
-        src_len,
-        "texture size != src buffer size"
-    );
+pub(super) fn create(gpu: &Gpu, rows: u64, bytes: &[u8]) -> Result<Texture, BenchError> {
+    let height = geometry(rows, bytes.len())?;
+    aruminium::autorelease_pool(|| {
+        // SAFETY: exact SDK ObjC class, selectors and LP64 NSUInteger/bool ABI.
+        // Descriptor is autoreleased inside this pool; gpu.texture returns a
+        // separately retained native Texture before the pool drains.
+        let texture = unsafe {
+            let class = objc_getClass(c"MTLTextureDescriptor".as_ptr());
+            if class.is_null() {
+                return Err(GpuError::TextureCreationFailed(
+                    "MTLTextureDescriptor class missing".into(),
+                )
+                .into());
+            }
+            let make: unsafe extern "C" fn(Id, Id, usize, usize, usize, bool) -> Id =
+                std::mem::transmute(objc_msgSend as *const c_void);
+            let desc = make(
+                class,
+                selector(c"texture2DDescriptorWithPixelFormat:width:height:mipmapped:"),
+                RGBA32_UINT,
+                WIDTH,
+                height,
+                false,
+            );
+            if desc.is_null() {
+                return Err(GpuError::TextureCreationFailed(
+                    "texture descriptor returned nil".into(),
+                )
+                .into());
+            }
+            let set: unsafe extern "C" fn(Id, Id, usize) =
+                std::mem::transmute(objc_msgSend as *const c_void);
+            set(desc, selector(c"setUsage:"), 1); // MTLTextureUsageShaderRead
+            set(desc, selector(c"setStorageMode:"), 0); // MTLStorageModeShared
+            gpu.texture(desc)?
+        };
+        if texture.width() != WIDTH
+            || texture.height() != height
+            || texture.depth() != 1
+            || texture.pixel_format() != RGBA32_UINT
+        {
+            return Err(GpuError::TextureCreationFailed(
+                "texture dimensions/format differ from V9 profile".into(),
+            )
+            .into());
+        }
+        let region = MTLRegion {
+            origin: MTLOrigin { x: 0, y: 0, z: 0 },
+            size: MTLSize {
+                width: WIDTH,
+                height,
+                depth: 1,
+            },
+        };
+        // SAFETY: fresh private texture has no GPU use. Exact initialized logical
+        // bytes cover the entire sole mip; immediate CPU copy finishes before
+        // the slice borrow ends. Apple requests zero stride for a single row.
+        unsafe {
+            texture.replace_region(
+                region,
+                0,
+                bytes.as_ptr().cast(),
+                if height == 1 { 0 } else { ROW_BYTES },
+            );
+        }
+        Ok(texture)
+    })
+}
+
+pub(super) fn bind(encoder: &Encoder, texture: &Texture) {
+    // SAFETY: live retained encoder/texture, exact SDK NSUInteger argument.
+    // Owner keeps texture initialized and retained until command completion.
     unsafe {
-        texture.replace_region(region, 0, src_bytes as *const c_void, bytes_per_row);
+        let set: unsafe extern "C" fn(Id, Id, Id, usize) =
+            std::mem::transmute(objc_msgSend as *const c_void);
+        set(
+            encoder.as_raw(),
+            selector(c"setTexture:atIndex:"),
+            texture.as_raw(),
+            0,
+        );
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,0 +1,22 @@
+APPROVE
+
+No blockers.
+
+The owner repair matches the approved plan and the supplied source. `RTable::read_only_buffer` is the one unsafe borrow of the existing import: it checks availability, raw device identity, and full-actual `validate` before returning `&Buffer`. `GpuMiner` uses that reference only for const buffer binds, does not store or export it, and does not call `Buffer::write` or `contents_ptr` on it. `'table` and `'gpu` keep the tables and device alive through `run`, including error returns. Field order still drops the import before its backing. Output is a private 32-byte shared buffer, checked for size, sharing, and 4-byte alignment, and it is zeroed before encode. V9 is a separate retained RGBA32Uint copy (`16384×height`, mip 0), uploaded with `replaceRegion` before any GPU use.
+
+`run` validates width, grid limits, alignment, and mapping before it can set `failed`. Count 0 copies `[0; 32]` and does not submit. The grid is `count/k + (count%k != 0)` for k = 1, 2, or 4, with checked conversion and no padded lanes. Parameters are an explicit 56-byte little-endian image with a zero pad. `failed = true`, `submit`, and `wait` are adjacent. Only `STATUS_COMPLETED` with no native error clears `failed` and then copies 32 bytes. Any other completion leaves the executor closed; later count 0 stays `Unavailable`. Input tables are not closed. Nonces wrap with `wrapping_add` on the CPU and `ulong` addition on the GPU. Shader bounds checks still drop out-of-range V2/V5 tails.
+
+Scoped workers return `()`, publish reference and overflow bits, and set stop on those faults. `StopOnExit` is inside the scope closure before spawn, so every return path signals stop before `scope` joins. Publication order is panic, then main/spawn/GPU error, then counter overflow, then reference input. CPU workers receive an immutable byte slice. GPU `submit`/`wait` stays on the caller thread.
+
+The Go oracle has no Erga or native imports. The harness compares all 360 full-batch digests and 18 single digests, including odd counts, width 1 and 64, owner reuse, V6/V7, distinct V8 contents, and 8192/16384-row V9. Recorded focused debug and release runs report 41 passes each and 17 compile-fail doctests. Workspace test, fmt, and tag-semver reds are disclosed and reproduced as pre-existing or inventory breaks. This is a source-repair approval only; it does not approve a release, a version bump, provider-wide soundness, or protocol closure.
+
+## Blockers
+
+None.
+
+## Optional
+
+- The hybrid interference print divides by the sum of the separate CPU and GPU rates. A zero sum yields a non-finite percentage after otherwise successful work.
+- `measure` divides by the elapsed seconds of a timed run. A zero elapsed interval yields a non-finite rate.
+- Workspace chime panics, the remaining fmt delta, and the mine/RTable semver major classes stay decision/wip receipts. Tag v0.30.0 was compile-only; no old raw owner was executed.
+- Real cross-device rejection and real GPU failure remain source and simulated coverage, which is the limit the plan allowed on a one-device host. The initial preformat check body was not retained and was not replayed here.

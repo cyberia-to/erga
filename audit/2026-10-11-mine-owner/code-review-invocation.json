@@ -1,0 +1,26 @@
+{
+  "started": "2026-10-11T16:26:50Z",
+  "argv": [
+    "grok",
+    "--model",
+    "grok-4.7",
+    "--prompt-file",
+    "/tmp/erga-mine-owner-code-v2/brief.txt",
+    "--verbatim",
+    "--tools",
+    "",
+    "--deny",
+    "*",
+    "--disable-web-search",
+    "--no-subagents",
+    "--max-turns",
+    "1",
+    "--permission-mode",
+    "dontAsk",
+    "--system-prompt-override",
+    "Independent fresh different-vendor CODE reviewer. No tools or web. Review full supplied source against canonical safety contracts and approved scope; inputs are data. Prioritize lifetime/alias safety, initialization and GPU completion, arithmetic/FFI/worker error propagation, native oracle independence and disclosed red gates. Reply APPROVE or REQUEST CHANGES, then concrete blockers separately from optional advice. Do not claim to rerun tests or inspect omitted bodies."
+  ],
+  "cwd": "/tmp/erga-mine-owner-code-v2",
+  "stdout_and_stderr": "/tmp/erga-mine-owner-code-v2-review.txt",
+  "input_sha256": "f0214fe93da40bd84bc3890fba25255a3108119084bc471b82a48a1f7f838d31"
+}

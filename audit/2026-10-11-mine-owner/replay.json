@@ -1,0 +1,49 @@
+{
+  "command": [
+    "nu",
+    "/Users/master/cyber/erga-unimem-mine-owner/audit/2026-10-11-mine-owner/verify.nu",
+    "/Users/master/cyber/erga-unimem-mine-owner/audit/2026-10-11-mine-owner",
+    "--source",
+    "/Users/master/cyber/erga-unimem-mine-owner"
+  ],
+  "start": "2026-10-11T16:38:16Z",
+  "end": "2026-10-11T16:38:16Z",
+  "exit_code": 0,
+  "stdout": "{\n  \"payloads\": 285,\n  \"source_base\": \"8dcb33888868d74ddfda3eeeb9bc90e58677b394\",\n  \"source_sha256\": \"6175ec74aac4ccf2493db33b694b02120d4a2ae6a87356be3803cdc8b217b7bf\",\n  \"candidate_files\": 20,\n  \"complete_overlay_snapshots\": 2,\n  \"parent_manifest_files\": 137,\n  \"records\": 33,\n  \"raw_streams\": 66,\n  \"complete_review_packs\": 3,\n  \"review_sections\": [\n    162,\n    119,\n    105\n  ],\n  \"oracle_batches\": 360,\n  \"oracle_individual\": 18,\n  \"candidate_fmt_sections\": 138,\n  \"parent_fmt_sections\": 154,\n  \"unchanged_fmt_sections\": 138,\n  \"exact_app_overflow_failures\": 2,\n  \"patch_reconstructs_candidate\": true,\n  \"initial_exploratory_body_missing\": [\n    \"01-check\"\n  ],\n  \"reran_native_work\": false,\n  \"refetched_omitted_primaries\": false,\n  \"scope\": \"Portable evidence integrity and relationship replay; original native/upstream checks remain recorded observations.\",\n  \"archive_sha256\": \"b7df9f54716657fcfb82f57d05a87111ff1248df1e12fe30d82bf049eedfc072\",\n  \"live_candidate_files\": 20\n}\n",
+  "stderr": "",
+  "verification": {
+    "payloads": 285,
+    "source_base": "8dcb33888868d74ddfda3eeeb9bc90e58677b394",
+    "source_sha256": "6175ec74aac4ccf2493db33b694b02120d4a2ae6a87356be3803cdc8b217b7bf",
+    "candidate_files": 20,
+    "complete_overlay_snapshots": 2,
+    "parent_manifest_files": 137,
+    "records": 33,
+    "raw_streams": 66,
+    "complete_review_packs": 3,
+    "review_sections": [
+      162,
+      119,
+      105
+    ],
+    "oracle_batches": 360,
+    "oracle_individual": 18,
+    "candidate_fmt_sections": 138,
+    "parent_fmt_sections": 154,
+    "unchanged_fmt_sections": 138,
+    "exact_app_overflow_failures": 2,
+    "patch_reconstructs_candidate": true,
+    "initial_exploratory_body_missing": [
+      "01-check"
+    ],
+    "reran_native_work": false,
+    "refetched_omitted_primaries": false,
+    "scope": "Portable evidence integrity and relationship replay; original native/upstream checks remain recorded observations.",
+    "archive_sha256": "b7df9f54716657fcfb82f57d05a87111ff1248df1e12fe30d82bf049eedfc072",
+    "live_candidate_files": 20
+  },
+  "reran_native_work": false,
+  "archive_bytes": 1326509,
+  "archive_sha256": "b7df9f54716657fcfb82f57d05a87111ff1248df1e12fe30d82bf049eedfc072",
+  "verifier_sha256": "60101a481cebb8531343f27078240b820a104c9051c1be27946125d0bc674ce3"
+}
